@@ -1,0 +1,3684 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// GENERATED from dc-runtime/src/*.ts — do not edit. Rebuild with `cd dc-runtime && bun run build`.
+"use strict";
+(() => {
+  var __defProp = Object.defineProperty;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+
+  // src/react.ts
+  function getReact() {
+    const R = window.React;
+    if (!R) throw new Error("dc-runtime: window.React is not available yet");
+    return R;
+  }
+  function getReactDOM() {
+    const RD = window.ReactDOM;
+    if (!RD) throw new Error("dc-runtime: window.ReactDOM is not available yet");
+    return RD;
+  }
+  var h = ((...args) => getReact().createElement(
+    ...args
+  ));
+
+  // src/parse.ts
+  function parseDcDocument(doc) {
+    const dc = doc.querySelector("x-dc");
+    if (!dc) return null;
+    const scriptEl = doc.querySelector("script[data-dc-script]");
+    const { props, preview } = parseDataProps(
+      scriptEl?.getAttribute("data-props") ?? null
+    );
+    return {
+      template: dc.innerHTML,
+      js: scriptEl ? scriptEl.textContent || "" : "",
+      props,
+      preview
+    };
+  }
+  function parseDcText(src) {
+    const openMatch = /<x-dc(?:\s[^>]*)?>/.exec(src);
+    if (!openMatch) return null;
+    const close = src.lastIndexOf("<\/x-dc>");
+    if (close === -1 || close < openMatch.index) return null;
+    const template = src.slice(openMatch.index + openMatch[0].length, close);
+    const doc = new DOMParser().parseFromString(src, "text/html");
+    const scriptEl = doc.querySelector("script[data-dc-script]");
+    const { props, preview } = parseDataProps(
+      scriptEl?.getAttribute("data-props") ?? null
+    );
+    return {
+      template,
+      js: scriptEl ? scriptEl.textContent || "" : "",
+      props,
+      preview
+    };
+  }
+  function parseDataProps(raw) {
+    if (!raw) return { props: null, preview: null };
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { props: null, preview: null };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { props: null, preview: null };
+    }
+    const obj = parsed;
+    const preview = obj.$preview && typeof obj.$preview === "object" ? obj.$preview : null;
+    const rest = {};
+    for (const k of Object.keys(obj)) {
+      if (k[0] !== "$") rest[k] = obj[k];
+    }
+    return { props: Object.keys(rest).length ? rest : null, preview };
+  }
+  function dcNameFromPath(pathname) {
+    let p = pathname || "";
+    try {
+      p = decodeURIComponent(p);
+    } catch {
+    }
+    const base = p.split("/").pop() || "Root";
+    return base.replace(/\.dc\.html$/, "").replace(/\.html?$/, "") || "Root";
+  }
+
+  // src/boot.ts
+  var BASE_CSS = `
+    .sc-placeholder{background:color-mix(in srgb,currentColor 8%,transparent);
+      border:1px solid color-mix(in srgb,currentColor 50%,transparent);
+      border-radius:2px;box-sizing:border-box;overflow:hidden}
+    @keyframes sc-shine{0%{background-position:100% 50%}100%{background-position:0% 50%}}
+    html.sc-dc-streaming .sc-placeholder,
+    html.sc-dc-streaming .sc-interp.sc-missing{position:relative;
+      background:color-mix(in srgb,currentColor 5%,transparent);
+      border-color:transparent}
+    html.sc-dc-streaming .sc-placeholder::before,
+    html.sc-dc-streaming .sc-interp.sc-missing::before{content:'';
+      position:absolute;inset:0;pointer-events:none;
+      background:linear-gradient(90deg,rgba(217,119,87,0) 25%,rgba(247,225,211,.95) 37%,rgba(217,119,87,0) 63%);
+      background-size:400% 100%;animation:sc-shine 1.4s ease infinite}
+    html.sc-dc-streaming .sc-placeholder:nth-child(n+9 of .sc-placeholder)::before,
+    html.sc-dc-streaming .sc-interp.sc-missing:nth-child(n+9 of .sc-interp.sc-missing)::before{animation:none;
+      background:color-mix(in srgb,currentColor 8%,transparent)}
+    .sc-placeholder-error{padding:4px 8px;font:11px/1.4 ui-monospace,monospace;
+      color:color-mix(in srgb,currentColor 70%,transparent);word-break:break-word}
+    .sc-interp.sc-missing{display:inline-block;width:2em;height:1em;overflow:hidden;
+      vertical-align:text-bottom;background:rgba(255,255,255,.3);border:1px solid rgba(0,0,0,.5);
+      border-radius:2px;box-sizing:border-box;color:transparent;
+      user-select:none}
+    .sc-interp.sc-unresolved{font-family:ui-monospace,monospace;font-size:.85em;
+      color:color-mix(in srgb,currentColor 50%,transparent);
+      background:color-mix(in srgb,currentColor 10%,transparent);border-radius:3px;
+      padding:0 3px}
+    .sc-host.sc-has-error{position:relative}
+    .sc-logic-error{position:absolute;top:8px;left:8px;z-index:2147483647;max-width:60ch;
+      padding:6px 10px;background:#b00020;color:#fff;font:12px/1.4 ui-monospace,monospace;
+      border-radius:4px;white-space:pre-wrap;pointer-events:none}
+    /* Mirrors PRINT_BASELINE_CSS in apps/web deck-stage-export.ts \u2014 keep both
+       in sync until dc-runtime regains a build step. */
+    @media print {
+      @page { margin: 0.5cm; }
+      figure, table { break-inside: avoid; }
+      #dc-root, #dc-root > .sc-host { height: auto; }
+      *, *::before, *::after {
+        print-color-adjust: exact; -webkit-print-color-adjust: exact;
+        backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+        animation-delay: -99s !important; animation-duration: .001s !important;
+        animation-iteration-count: 1 !important; animation-fill-mode: both !important;
+        animation-play-state: running !important; transition-duration: 0s !important;
+      }
+    }
+  `;
+  var FULL_PAGE_CSS = "html,body{height:100%;margin:0}#dc-root,#dc-root>.sc-host{height:100%}";
+  function rootNameForDocument(doc, loc) {
+    let bootPath = loc.pathname || "";
+    if (!/\.dc\.html?$/i.test(safeDecode(bootPath))) {
+      try {
+        bootPath = new URL(doc.baseURI || "/").pathname;
+      } catch {
+      }
+    }
+    return dcNameFromPath(bootPath);
+  }
+  function safeDecode(s) {
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  }
+  function boot(runtime, doc = document) {
+    const parsed = parseDcDocument(doc);
+    if (!parsed) return null;
+    const React = getReact();
+    const rootName = rootNameForDocument(doc, location);
+    runtime.markFetched(rootName);
+    runtime.setRootName(rootName);
+    runtime.adoptParsed(rootName, parsed);
+    if (!window.__resources) {
+      fetch(location.href).then((res) => res.ok ? res.text() : "").then((t) => {
+        const raw = t ? parseDcText(t) : null;
+        if (raw?.template) runtime.updateHtml(rootName, raw.template);
+      }).catch(() => {
+      });
+    }
+    const dc = doc.querySelector("x-dc");
+    const hostEl = doc.createElement("div");
+    hostEl.id = "dc-root";
+    dc.replaceWith(hostEl);
+    if (!parsed.preview) {
+      const s = doc.createElement("style");
+      s.textContent = FULL_PAGE_CSS;
+      doc.head.appendChild(s);
+    }
+    const Root = runtime.getDC(rootName);
+    const entry = runtime.registry.get(rootName);
+    function StandaloneRoot() {
+      const [, setTick] = React.useState(0);
+      React.useEffect(() => {
+        const sub = () => setTick((n) => n + 1);
+        entry.subs.add(sub);
+        return () => {
+          entry.subs.delete(sub);
+        };
+      }, []);
+      const defaults = React.useMemo(() => {
+        const d = {};
+        for (const k in entry.propsMeta || {}) {
+          const v = entry.propsMeta?.[k]?.default;
+          if (v !== void 0) d[k] = v;
+        }
+        return d;
+      }, [entry.propsMeta]);
+      return h(Root, { ...defaults, ...entry.propOverrides || {} });
+    }
+    const ReactDOM = getReactDOM();
+    if (ReactDOM.createRoot)
+      ReactDOM.createRoot(hostEl).render(h(StandaloneRoot));
+    else ReactDOM.render(h(StandaloneRoot), hostEl);
+    return rootName;
+  }
+
+  // src/expr.ts
+  var IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*/;
+  var NUMBER_RE = /^-?\d+(\.\d+)?$/;
+  function resolve(vals, src) {
+    const expr = String(src).trim();
+    if (!expr) return void 0;
+    if (expr[0] === "(" && expr[expr.length - 1] === ")" && parensWrapWhole(expr)) {
+      return resolve(vals, expr.slice(1, -1));
+    }
+    const eq = findTopLevelEquality(expr);
+    if (eq) {
+      const lv = resolve(vals, expr.slice(0, eq.index));
+      const rv = resolve(vals, expr.slice(eq.index + eq.op.length));
+      switch (eq.op) {
+        case "===":
+          return lv === rv;
+        case "!==":
+          return lv !== rv;
+        case "==":
+          return lv == rv;
+        default:
+          return lv != rv;
+      }
+    }
+    if (expr[0] === "!") return !resolve(vals, expr.slice(1));
+    if (expr === "true") return true;
+    if (expr === "false") return false;
+    if (expr === "null") return null;
+    if (expr === "undefined") return void 0;
+    if (NUMBER_RE.test(expr)) return Number(expr);
+    if (expr.length >= 2 && (expr[0] === '"' || expr[0] === "'") && expr[expr.length - 1] === expr[0]) {
+      return expr.slice(1, -1);
+    }
+    return resolvePath(vals, expr);
+  }
+  function parensWrapWhole(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length - 1; i++) {
+      if (expr[i] === "(") depth++;
+      else if (expr[i] === ")") {
+        depth--;
+        if (depth === 0) return false;
+      }
+    }
+    return true;
+  }
+  function findTopLevelEquality(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length; i++) {
+      const c = expr[i];
+      if (c === "[" || c === "(") depth++;
+      else if (c === "]" || c === ")") depth--;
+      else if (depth === 0 && (c === "=" || c === "!") && expr[i + 1] === "=") {
+        if (i > 0 && (expr[i - 1] === "=" || expr[i - 1] === "!")) continue;
+        if (!expr.slice(0, i).trim()) continue;
+        const op = expr[i + 2] === "=" ? c + "==" : c + "=";
+        return { index: i, op };
+      }
+    }
+    return null;
+  }
+  function resolvePath(vals, expr) {
+    const head = expr.match(IDENT_RE);
+    if (!head) return void 0;
+    let cur = vals == null ? void 0 : vals[head[0]];
+    let i = head[0].length;
+    while (i < expr.length) {
+      if (expr[i] === ".") {
+        const m = expr.slice(i + 1).match(IDENT_RE) || expr.slice(i + 1).match(/^\d+/);
+        if (!m) return void 0;
+        cur = cur == null ? void 0 : cur[m[0]];
+        i += 1 + m[0].length;
+      } else if (expr[i] === "[") {
+        let depth = 1;
+        let j = i + 1;
+        while (j < expr.length && depth > 0) {
+          if (expr[j] === "[") depth++;
+          else if (expr[j] === "]") {
+            depth--;
+            if (depth === 0) break;
+          }
+          j++;
+        }
+        if (depth !== 0) return void 0;
+        const key = resolve(vals, expr.slice(i + 1, j));
+        cur = cur == null ? void 0 : cur[key];
+        i = j + 1;
+      } else {
+        return void 0;
+      }
+    }
+    return cur;
+  }
+
+  // src/encode.ts
+  var CAMEL_ATTR = "sc-camel-";
+  var INLINE_TEXT_TAGS = new Set(
+    "a abbr b bdi bdo br cite code del dfn em i ins kbd mark q s samp small span strike strong sub sup u var wbr".split(
+      " "
+    )
+  );
+  var RAW_WRAP = {
+    select: "sc-raw-select",
+    table: "sc-raw-table",
+    tbody: "sc-raw-tbody",
+    thead: "sc-raw-thead",
+    tfoot: "sc-raw-tfoot",
+    tr: "sc-raw-tr",
+    td: "sc-raw-td",
+    th: "sc-raw-th",
+    caption: "sc-raw-caption"
+  };
+  var RAW_UNWRAP = Object.fromEntries(
+    Object.entries(RAW_WRAP).map(([k, v]) => [v, k])
+  );
+  var EVENT_MAP = {
+    onclick: "onClick",
+    onchange: "onChange",
+    oninput: "onInput",
+    onsubmit: "onSubmit",
+    onkeydown: "onKeyDown",
+    onkeyup: "onKeyUp",
+    onkeypress: "onKeyPress",
+    onmousedown: "onMouseDown",
+    onmouseup: "onMouseUp",
+    onmouseenter: "onMouseEnter",
+    onmouseleave: "onMouseLeave",
+    onfocus: "onFocus",
+    onblur: "onBlur",
+    ondoubleclick: "onDoubleClick",
+    oncontextmenu: "onContextMenu",
+    onmousemove: "onMouseMove",
+    onmouseover: "onMouseOver",
+    onmouseout: "onMouseOut",
+    onpointerdown: "onPointerDown",
+    onpointerup: "onPointerUp",
+    onpointermove: "onPointerMove",
+    onpointerenter: "onPointerEnter",
+    onpointerleave: "onPointerLeave",
+    onpointercancel: "onPointerCancel",
+    onpointerover: "onPointerOver",
+    onpointerout: "onPointerOut",
+    ongotpointercapture: "onGotPointerCapture",
+    onlostpointercapture: "onLostPointerCapture",
+    ontouchstart: "onTouchStart",
+    ontouchend: "onTouchEnd",
+    ontouchmove: "onTouchMove",
+    ontouchcancel: "onTouchCancel",
+    ondragstart: "onDragStart",
+    ondragend: "onDragEnd",
+    ondragenter: "onDragEnter",
+    ondragleave: "onDragLeave",
+    ondragover: "onDragOver",
+    onanimationstart: "onAnimationStart",
+    onanimationend: "onAnimationEnd",
+    onanimationiteration: "onAnimationIteration",
+    ontransitionend: "onTransitionEnd"
+  };
+  var ATTRS = `(?:[^>"']|"[^"]*"|'[^']*')*`;
+  var IMPORT_SELF_CLOSE_RE = new RegExp(
+    "<(x-import|dc-import)(" + ATTRS + ")/>",
+    "gi"
+  );
+  var CAMEL_ATTR_RE = /(\s)([a-z]+[A-Z][A-Za-z0-9]*)(\s*=)/g;
+  function encodeCamelAttrs(html) {
+    return html.replace(
+      CAMEL_ATTR_RE,
+      (_, sp, name, eq) => sp + CAMEL_ATTR + name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()) + eq
+    );
+  }
+  function encodeCase(html) {
+    html = html.replace(
+      IMPORT_SELF_CLOSE_RE,
+      (_, t, a) => "<" + t + a + "></" + t + ">"
+    );
+    html = html.replace(/<helmet(\s|>)/gi, "<sc-helmet$1");
+    html = html.replace(/<\/helmet\s*>/gi, "</sc-helmet>");
+    html = encodeCamelAttrs(html);
+    for (const [real, alias] of Object.entries(RAW_WRAP)) {
+      html = html.replace(
+        new RegExp("(</?)" + real + "(?=[\\s>])", "gi"),
+        "$1" + alias
+      );
+    }
+    return html;
+  }
+  function kebabToCamel(s) {
+    return s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  }
+  function cssToObj(css) {
+    const o = {};
+    for (const decl of css.split(";")) {
+      const i = decl.indexOf(":");
+      if (i < 0) continue;
+      const prop = decl.slice(0, i).trim();
+      o[prop.startsWith("--") ? prop : kebabToCamel(prop)] = decl.slice(i + 1).trim();
+    }
+    return o;
+  }
+  function compileAttr(raw) {
+    const whole = raw.match(/^\s*\{\{([\s\S]+?)\}\}\s*$/);
+    if (whole) {
+      const path = whole[1];
+      return (vals) => resolve(vals, path);
+    }
+    if (raw.includes("{{")) {
+      const parts = raw.split(/\{\{([\s\S]+?)\}\}/g);
+      return (vals) => parts.map((s, i) => i & 1 ? resolve(vals, s) ?? "" : s).join("");
+    }
+    return () => raw;
+  }
+
+  // src/compile.ts
+  function collectProps(node, kind, host) {
+    const propGetters = [];
+    const pseudoClasses = [];
+    let hintSize = null;
+    for (const { name, value } of [...node.attributes]) {
+      if (name === "sc-name" || name === "data-dc-tpl") continue;
+      let key = name;
+      if (key.startsWith(CAMEL_ATTR))
+        key = kebabToCamel(key.slice(CAMEL_ATTR.length));
+      if (key === "hint-size") {
+        hintSize = value;
+        continue;
+      }
+      if (key.startsWith("style-")) {
+        pseudoClasses.push(host.pseudoClass(key.slice(6), value));
+        continue;
+      }
+      if (kind !== "dom") {
+        if (key.includes("-") && !(kind === "x-import" && (key.startsWith("aria-") || key.startsWith("data-"))))
+          key = kebabToCamel(key);
+      } else {
+        if (key === "class") key = "className";
+        else if (key === "for") key = "htmlFor";
+        else if (key.startsWith("on"))
+          key = EVENT_MAP[key] || "on" + key[2].toUpperCase() + key.slice(3);
+      }
+      propGetters.push([key, compileAttr(value)]);
+    }
+    return { propGetters, pseudoClasses, hintSize };
+  }
+  var HOST_STYLE_PROPS = /* @__PURE__ */ new Set([
+    "position",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "inset",
+    "width",
+    "height",
+    "z-index",
+    "transform"
+  ]);
+  function hostPositionStyle(style) {
+    const all = typeof style === "string" ? cssToObj(style) : style != null && typeof style === "object" ? style : null;
+    if (!all) return void 0;
+    const out = {};
+    for (const [k, v] of Object.entries(all)) {
+      const kebab = k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+      if (HOST_STYLE_PROPS.has(kebab)) out[k] = v;
+    }
+    return Object.keys(out).length ? out : void 0;
+  }
+  function compileTemplate(html, host) {
+    const tpl = document.createElement("template");
+    //! nosemgrep: direct-inner-html-assignment
+    tpl.innerHTML = encodeCase(html);
+    let tplN = 0;
+    (function stamp(node) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        node.setAttribute("data-dc-tpl", String(tplN++));
+      }
+      for (const c of node.childNodes) stamp(c);
+    })(tpl.content);
+    const builders = walkChildren(tpl.content, host);
+    const render = ((vals, ctx) => builders.map((b, i) => b(vals || {}, ctx, i)));
+    render.__annotated = tpl.innerHTML;
+    return render;
+  }
+  function walkChildren(node, host) {
+    return [...node.childNodes].map((c) => walk(c, host)).filter((b) => b != null);
+  }
+  var SLIDE_ID_VALUE_RE = /^[0-9a-f]{8}$/;
+  var DECK_CONTROL_FLOW_RE = /^(sc-if|sc-for|sc-else|dc-import|x-import)$/;
+  var DECK_AUX_RE = /^(template|script|style|sc-helmet|helmet)$/;
+  function isDeckMountTag(el) {
+    if (el.localName === "deck-stage") return true;
+    return el.localName === "x-import" && (el.getAttribute("component-from-global-scope") || "") === "deck-stage";
+  }
+  function walkDeckChildren(el, host) {
+    const pairs = [...el.childNodes].map((c) => ({ c, b: walk(c, host) })).filter((p) => p.b !== null);
+    const kids = pairs.map((p) => p.b);
+    const seen = /* @__PURE__ */ new Set();
+    const wsSeen = /* @__PURE__ */ new Map();
+    const keys = [];
+    const nextSlideId = new Array(pairs.length);
+    {
+      let upcoming = null;
+      for (let j = pairs.length - 1; j >= 0; j--) {
+        const n = pairs[j].c;
+        if (n.nodeType === Node.ELEMENT_NODE) {
+          const t = n.localName;
+          upcoming = !DECK_AUX_RE.test(t) && !DECK_CONTROL_FLOW_RE.test(t) ? n.getAttribute("data-om-slide-id") : null;
+        }
+        nextSlideId[j] = upcoming;
+      }
+    }
+    for (let j = 0; j < pairs.length; j++) {
+      const { c } = pairs[j];
+      if (c.nodeType === Node.TEXT_NODE) {
+        if ((c.nodeValue ?? "").trim() === "") {
+          const base = nextSlideId[j] ? "omid-ws:" + nextSlideId[j] : "omid-ws:aux";
+          const n = wsSeen.get(base) ?? 0;
+          wsSeen.set(base, n + 1);
+          keys.push(n === 0 ? base : base + ":" + n);
+          continue;
+        }
+        return { kids, keys: null };
+      }
+      if (c.nodeType !== Node.ELEMENT_NODE) {
+        keys.push(j);
+        continue;
+      }
+      const child = c;
+      const tag = child.localName;
+      if (DECK_AUX_RE.test(tag)) {
+        keys.push(j);
+        continue;
+      }
+      if (DECK_CONTROL_FLOW_RE.test(tag)) return { kids, keys: null };
+      const v = child.getAttribute("data-om-slide-id");
+      if (!v || !SLIDE_ID_VALUE_RE.test(v) || seen.has(v)) {
+        return { kids, keys: null };
+      }
+      seen.add(v);
+      keys.push("omid:" + v);
+    }
+    return { kids, keys };
+  }
+  function renderDeckKids(kids, kidKeys, vals, ctx) {
+    return kids.map((b, j) => {
+      const k = kidKeys ? kidKeys[j] : j;
+      const out = b(vals, ctx, k);
+      return kidKeys != null && typeof out === "string" ? h(getReact().Fragment, { key: k }, out) : out;
+    });
+  }
+  function walk(node, host) {
+    if (node.nodeType === Node.TEXT_NODE) return walkText(node);
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    const el = node;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "sc-for") return walkFor(el, host);
+    if (tag === "sc-if") return walkIf(el, host);
+    if (tag === "x-import") return walkXImport(el, host);
+    if (tag === "sc-helmet") return host.helmet(el);
+    if (tag === "dc-import") return walkComponent(el, host);
+    return walkElement(el, host);
+  }
+  var warnedHoles = /* @__PURE__ */ new Set();
+  function warnUnresolved(ctx, what) {
+    const key = (ctx?.__name || "?") + "\0" + what;
+    if (warnedHoles.has(key)) return;
+    warnedHoles.add(key);
+    console.warn("[dc-runtime] " + (ctx?.__name || "template") + ": " + what);
+  }
+  function walkText(node) {
+    const txt = node.nodeValue ?? "";
+    if (!txt.includes("{{")) {
+      if (!txt.trim() && !txt.includes(" ")) return null;
+      return () => txt;
+    }
+    const parts = txt.split(/\{\{([\s\S]+?)\}\}/g);
+    return (vals, ctx, key) => h(
+      getReact().Fragment,
+      { key },
+      ...parts.map((p, i) => {
+        if (!(i & 1)) return p;
+        const v = resolve(vals, p);
+        if (v === void 0) {
+          if (!ctx?.__streamingNow) {
+            if (document.body?.hasAttribute("data-dc-editor-on")) {
+              return h(
+                "span",
+                { key: i, className: "sc-interp sc-unresolved" },
+                "{{ " + p.trim() + " }}"
+              );
+            }
+            warnUnresolved(
+              ctx,
+              "{{ " + p.trim() + " }} never resolved \u2014 rendered as empty"
+            );
+            return null;
+          }
+          return h(
+            "span",
+            { key: i, className: "sc-interp sc-missing" },
+            p.trim()
+          );
+        }
+        if (getReact().isValidElement(v) || Array.isArray(v)) {
+          return h(getReact().Fragment, { key: i }, v);
+        }
+        if (v === null || typeof v === "boolean") return null;
+        return h("span", { key: i, className: "sc-interp" }, String(v));
+      })
+    );
+  }
+  function walkFor(el, host) {
+    const listGet = compileAttr(el.getAttribute("list") || "");
+    const asName = el.getAttribute("as") || "item";
+    const hintN = parseInt(el.getAttribute("hint-placeholder-count") || "0", 10);
+    const kids = walkChildren(el, host);
+    const listSrc = el.getAttribute("list") || "";
+    return (vals, ctx, key) => {
+      let list = listGet(vals);
+      if (!Array.isArray(list)) {
+        if (!ctx?.__streamingNow) {
+          if (list !== void 0 && list !== null) {
+            warnUnresolved(
+              ctx,
+              'sc-for list="' + listSrc + '" is not an array (' + typeof list + ")"
+            );
+          }
+          list = [];
+        } else {
+          list = hintN > 0 ? Array(hintN).fill(void 0) : [];
+        }
+      }
+      return h(
+        getReact().Fragment,
+        { key },
+        list.map((item, i) => {
+          const sub = { ...vals, [asName]: item, $index: i };
+          return h(
+            getReact().Fragment,
+            { key: i },
+            kids.map((b, j) => b(sub, ctx, j))
+          );
+        })
+      );
+    };
+  }
+  function walkIf(el, host) {
+    const valGet = compileAttr(el.getAttribute("value") || "");
+    const hintRaw = el.getAttribute("hint-placeholder-val");
+    const hintGet = hintRaw != null ? compileAttr(hintRaw) : null;
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      let v = valGet(vals);
+      if (v === void 0 && hintGet && ctx?.__streamingNow) v = hintGet(vals);
+      return v ? h(
+        getReact().Fragment,
+        { key },
+        kids.map((b, j) => b(vals, ctx, j))
+      ) : null;
+    };
+  }
+  function walkComponent(el, host) {
+    const name = el.getAttribute("name") || el.getAttribute("component") || "";
+    el.removeAttribute("name");
+    el.removeAttribute("component");
+    const tplId = el.getAttribute("data-dc-tpl");
+    const styleRaw = el.getAttribute("style");
+    el.removeAttribute("style");
+    const styleGet = styleRaw != null ? compileAttr(styleRaw) : null;
+    const { propGetters, hintSize } = collectProps(el, "dc-import", host);
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      const props = {
+        key,
+        __hintSize: hintSize,
+        __tplId: tplId,
+        __hostStyle: styleGet ? hostPositionStyle(styleGet(vals)) : void 0
+      };
+      for (const [k, g] of propGetters) {
+        const v = g(vals);
+        if (k === "dcProps") {
+          if (v && typeof v === "object") Object.assign(props, v);
+          continue;
+        }
+        props[k] = v;
+      }
+      if (kids.length) props.children = kids.map((b, j) => b(vals, ctx, j));
+      return h(host.component(name), props);
+    };
+  }
+  function walkXImport(el, host) {
+    const globalNameGet = compileAttr(
+      el.getAttribute("component-from-global-scope") || ""
+    );
+    const exportNameGet = compileAttr(
+      el.getAttribute("component") || el.getAttribute("name") || ""
+    );
+    const fromRaw = el.getAttribute("from") || (el.getAttribute("component-from-global-scope") ? "" : el.getAttribute("src") || el.getAttribute("import") || "");
+    const urls = fromRaw.trim() ? fromRaw.trim().split(/\s+/) : [];
+    const url = urls.length ? urls[urls.length - 1] : "";
+    const kindOf = (u) => /\.(jsx|tsx)(\?|#|$)/i.test(u) ? "jsx" : "js";
+    const tplId = el.getAttribute("data-dc-tpl");
+    const styleRaw = el.getAttribute("style");
+    el.removeAttribute("style");
+    const styleGet = styleRaw != null ? compileAttr(styleRaw) : null;
+    const wrap = tplId != null || styleGet != null;
+    const { propGetters, hintSize } = collectProps(el, "x-import", host);
+    const hasContent = el.children.length > 0 || !!(el.textContent || "").trim();
+    const deckKeyed = hasContent && isDeckMountTag(el) ? walkDeckChildren(el, host) : null;
+    const kids = deckKeyed ? deckKeyed.kids : hasContent ? walkChildren(el, host) : [];
+    const kidKeys = deckKeyed?.keys ?? null;
+    const urlBindable = fromRaw.includes("{{");
+    if (urls.length && !urlBindable) {
+      let prev;
+      for (const u of urls) prev = host.loadExternal(kindOf(u), u, prev);
+    }
+    const evalName = (g, vals) => {
+      const v = g(vals);
+      const s = v == null ? "" : String(v);
+      return s.includes("{{") ? "" : s;
+    };
+    return (vals, ctx, key) => {
+      const globalName = evalName(globalNameGet, vals);
+      const name = globalName || evalName(exportNameGet, vals);
+      const C = !name || urlBindable ? null : globalName ? host.resolveExternalGlobal(url, globalName) : host.resolveExternal(url, name);
+      const hostStyle = styleGet ? hostPositionStyle(styleGet(vals)) : void 0;
+      const wrapper = wrap ? {
+        key,
+        className: "sc-host-x",
+        "data-dc-tpl": tplId,
+        style: hostStyle || { display: "contents" }
+      } : null;
+      if (!C) {
+        const error = urlBindable ? "x-import `from` cannot contain {{ \u2026 }} \u2014 module URLs are resolved at parse time; use a literal URL" : host.resolveExternalError(url, name);
+        const ph = host.placeholder({
+          key: wrapper ? void 0 : key,
+          name,
+          hintSize,
+          error
+        });
+        return wrapper ? h("div", wrapper, ph) : ph;
+      }
+      const props = wrapper ? {} : { key };
+      let unresolvedHole = false;
+      for (const [k, g] of propGetters) {
+        if (k === "component" || k === "componentFromGlobalScope" || k === "from") {
+          continue;
+        }
+        const v = g(vals);
+        if (v === void 0) unresolvedHole = true;
+        if (k === "dcProps") {
+          if (v && typeof v === "object") Object.assign(props, v);
+          continue;
+        }
+        props[k] = v;
+      }
+      if (unresolvedHole && ctx?.__htmlStreamingNow) {
+        const ph = host.placeholder({
+          key: wrapper ? void 0 : key,
+          name,
+          hintSize,
+          error: null
+        });
+        return wrapper ? h("div", wrapper, ph) : ph;
+      }
+      if (kids.length) {
+        props.children = renderDeckKids(kids, kidKeys, vals, ctx);
+      }
+      return wrapper ? h("div", wrapper, h(C, props)) : h(C, props);
+    };
+  }
+  function contentKey(el) {
+    const clone = el.cloneNode(true);
+    for (const d of clone.querySelectorAll("*")) {
+      while (d.attributes.length) d.removeAttribute(d.attributes[0].name);
+    }
+    const s = clone.innerHTML;
+    let h2 = 5381;
+    for (let i = 0; i < s.length; i++) h2 = (h2 << 5) + h2 + s.charCodeAt(i) | 0;
+    return s.length + "." + (h2 >>> 0).toString(36);
+  }
+  var NEVER_CONTENT_KEYED = new Set(
+    "script style textarea option title select canvas iframe video audio".split(
+      " "
+    )
+  );
+  var NOT_INLINE_SELECTOR = ":not(" + [...INLINE_TEXT_TAGS].join(",") + ")";
+  function walkElement(el, host) {
+    const realTag = RAW_UNWRAP[el.localName] || el.localName;
+    const tplId = el.getAttribute("data-dc-tpl");
+    const inlineOnly = el.childNodes.length > 0 && !NEVER_CONTENT_KEYED.has(realTag) && el.querySelector(NOT_INLINE_SELECTOR) === null;
+    const keySuffix = inlineOnly ? "|" + contentKey(el) : "";
+    const { propGetters, pseudoClasses } = collectProps(el, "dom", host);
+    const deckKeyed = isDeckMountTag(el) ? walkDeckChildren(el, host) : null;
+    const kids = deckKeyed ? deckKeyed.kids : walkChildren(el, host);
+    const kidKeys = deckKeyed?.keys ?? null;
+    return (vals, ctx, key) => {
+      const props = {
+        key: key + keySuffix,
+        "data-dc-tpl": tplId
+      };
+      for (const [k, g] of propGetters) {
+        let v = g(vals);
+        if (k === "style" && typeof v === "string") v = cssToObj(v);
+        if ((k === "value" || k === "checked") && v === void 0) {
+          v = k === "checked" ? false : "";
+        }
+        props[k] = v;
+      }
+      if (pseudoClasses.length) {
+        props.className = [props.className, ...pseudoClasses].filter(Boolean).join(" ");
+      }
+      return h(realTag, props, ...renderDeckKids(kids, kidKeys, vals, ctx));
+    };
+  }
+
+  // src/logic.ts
+  var StreamableLogic = class {
+    constructor(props) {
+      __publicField(this, "props");
+      __publicField(this, "state", {});
+      /** Back-pointer to the wrapper component, installed after construction. */
+      __publicField(this, "__host");
+      this.props = props || {};
+    }
+    setState(update, cb) {
+      this.__host && this.__host.__setLogicState(update, cb);
+    }
+    forceUpdate() {
+      this.__host && this.__host.forceUpdate();
+    }
+    componentDidMount() {
+    }
+    componentDidUpdate(_prevProps) {
+    }
+    componentWillUnmount() {
+    }
+    /** The flat object the template renders against (merged over props). */
+    renderVals() {
+      return {};
+    }
+  };
+  function evalDcLogic(src) {
+    //! nosemgrep: eval-and-function-constructor
+    const fn = new Function(
+      "DCLogic",
+      "StreamableLogic",
+      "React",
+      src + '\n;return (typeof Component!=="undefined"&&Component)||undefined;'
+    );
+    return fn(StreamableLogic, StreamableLogic, getReact());
+  }
+
+  // src/component.ts
+  function shallowEqual(a, b) {
+    if (!b) return false;
+    const ak = Object.keys(a).filter((k) => k !== "children");
+    const bk = Object.keys(b).filter((k) => k !== "children");
+    if (ak.length !== bk.length) return false;
+    for (const k of ak) if (a[k] !== b[k]) return false;
+    return true;
+  }
+  function Placeholder({
+    name,
+    hintSize,
+    streaming,
+    error
+  }) {
+    const [w, hgt] = (hintSize || "100%,60px").split(",");
+    return h(
+      "div",
+      {
+        className: "sc-placeholder" + (streaming ? " sc-streaming" : ""),
+        style: { width: w.trim(), height: hgt && hgt.trim() },
+        title: name
+      },
+      error ? h(
+        "div",
+        { className: "sc-placeholder-error" },
+        (name ? name + ": " : "") + error
+      ) : null
+    );
+  }
+  function hintToMin(hint) {
+    if (!hint) return void 0;
+    const [w, hgt] = hint.split(",");
+    return { minWidth: w.trim(), minHeight: hgt && hgt.trim() };
+  }
+  function createComponentFactory(registry, ensureFetched) {
+    const React = getReact();
+    const AncestorContext = React.createContext([]);
+    class StreamableComponent extends React.Component {
+      constructor(props) {
+        super(props);
+        __publicField(this, "__name");
+        __publicField(this, "__sub");
+        __publicField(this, "__needsDidMount", false);
+        /** Snapshot of the registry's streaming flags taken at render time —
+         *  builders read it off the RenderCtx (this) to pick placeholder vs
+         *  render-nothing for unresolved values. */
+        __publicField(this, "__streamingNow", false);
+        __publicField(this, "__htmlStreamingNow", false);
+        /** When a construct throws, remember the (class, registry.ver, props)
+         *  triple so render-time reconcile doesn't re-attempt it on every parent
+         *  re-render. A registry bump (new class, template, external module
+         *  resolving via bumpAll) changes `ver` and breaks the memo so an
+         *  env-dependent constructor can self-heal. */
+        __publicField(this, "__failedLogic", null);
+        __publicField(this, "__failedUserProps", null);
+        __publicField(this, "__failedVer", -1);
+        /** Per-instance constructor error — kept here (not on the registry entry)
+         *  so one instance's successful construct can't hide a sibling's failure,
+         *  and a construct can never wipe an eval error `updateJs` recorded on
+         *  `r.logicError`. */
+        __publicField(this, "__ctorError", null);
+        __publicField(this, "logic");
+        this.__name = props.__name;
+        this.state = { __v: 0, __err: null };
+        this.__sub = () => {
+          if (this.state.__err) this.setState({ __err: null });
+          this.forceUpdate();
+        };
+        this.__makeLogic(registry.get(this.__name).Logic, null);
+        ensureFetched(this.__name);
+      }
+      /** Error-boundary hook: a render crash anywhere in this DC's subtree
+       *  (its own template, an x-import'd component, a child DC without its
+       *  own deeper boundary) lands here instead of unmounting the page. */
+      static getDerivedStateFromError(e) {
+        return { __err: e instanceof Error && e.message ? e.message : String(e) };
+      }
+      componentDidCatch(e, info) {
+        console.error(
+          "[dc-runtime] render error in <" + this.__name + ">:",
+          e,
+          info?.componentStack || ""
+        );
+      }
+      /** Instantiate the logic class (or the no-op base) and adopt `prevState`
+       *  over its initial state — used both at mount and on hot-swap. */
+      __makeLogic(Logic, prevState) {
+        const L = Logic || StreamableLogic;
+        try {
+          this.logic = new L(this.__userProps());
+          this.__failedLogic = null;
+          this.__failedUserProps = null;
+          this.__ctorError = null;
+        } catch (e) {
+          console.error(e);
+          this.__failedLogic = Logic;
+          this.__failedUserProps = this.__userProps();
+          this.__failedVer = registry.get(this.__name).ver;
+          this.__ctorError = this.__name + ": " + (e instanceof Error && e.message ? e.message : String(e));
+          this.logic = new StreamableLogic(
+            this.__userProps()
+          );
+        }
+        this.logic.__host = this;
+        if (prevState)
+          this.logic.state = { ...this.logic.state || {}, ...prevState };
+      }
+      /** The props the author's logic + template see — internal __-prefixed
+       *  wiring stripped. */
+      __userProps() {
+        const { __name, __hintSize, __tplId, __hostStyle, ...rest } = this.props;
+        return rest;
+      }
+      __setLogicState(update, cb) {
+        const prev = this.logic.state;
+        const patch = typeof update === "function" ? update(prev) : update;
+        this.logic.state = { ...prev, ...patch };
+        this.setState((s) => ({ __v: s.__v + 1 }), cb);
+      }
+      /** Swap the logic instance when the registry's Logic class changed
+       *  (streaming completion, hot reload). State carries over; didMount
+       *  re-fires after the swap commits so refs exist. */
+      __reconcileLogic() {
+        const r = registry.get(this.__name);
+        const Next = r.Logic;
+        const Cur = this.logic.constructor;
+        if (Next === Cur || !Next && Cur === StreamableLogic || Next === this.__failedLogic && r.ver === this.__failedVer && shallowEqual(this.__userProps(), this.__failedUserProps)) {
+          return;
+        }
+        if (!this.__needsDidMount) {
+          try {
+            this.logic.componentWillUnmount();
+          } catch (e) {
+            console.error(e);
+          }
+        }
+        this.__makeLogic(Next, this.logic.state);
+        this.__needsDidMount = true;
+      }
+      componentDidMount() {
+        registry.get(this.__name).subs.add(this.__sub);
+        try {
+          this.logic.componentDidMount();
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      componentDidUpdate(prevProps) {
+        this.logic.props = this.__userProps();
+        if (this.__needsDidMount) {
+          if (this.state.__err || !registry.get(this.__name).tpl) return;
+          this.__needsDidMount = false;
+          try {
+            this.logic.componentDidMount();
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          try {
+            this.logic.componentDidUpdate(prevProps);
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      componentWillUnmount() {
+        registry.get(this.__name).subs.delete(this.__sub);
+        if (!this.__needsDidMount) {
+          try {
+            this.logic.componentWillUnmount();
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      render() {
+        const r = registry.get(this.__name);
+        const cls = "sc-host" + (r.htmlStreaming ? " sc-streaming-html" : "") + (r.jsStreaming ? " sc-streaming-js" : "");
+        const hintStyle = r.htmlStreaming ? hintToMin(this.props.__hintSize) : void 0;
+        const hostStyle = this.props.__hostStyle || hintStyle ? { ...hintStyle || {}, ...this.props.__hostStyle || {} } : void 0;
+        const hostBase = {
+          className: cls,
+          style: hostStyle,
+          "data-sc-name": this.__name,
+          "data-dc-tpl": this.props.__tplId
+        };
+        const chain = Array.isArray(this.context) ? this.context : [];
+        if (chain.includes(this.__name)) {
+          const cycle = [
+            ...chain.slice(chain.indexOf(this.__name)),
+            this.__name
+          ].join(" \u2192 ");
+          return h(
+            "div",
+            { ...hostBase, className: cls + " sc-has-error" },
+            h(Placeholder, {
+              name: this.__name,
+              hintSize: this.props.__hintSize,
+              error: "circular import: " + cycle
+            })
+          );
+        }
+        if (this.state.__err) {
+          return h(
+            "div",
+            { ...hostBase, className: cls + " sc-has-error" },
+            h(
+              "div",
+              { className: "sc-logic-error", "data-omelette-chrome": "" },
+              this.__name + ": " + this.state.__err
+            ),
+            h(Placeholder, {
+              name: this.__name,
+              hintSize: this.props.__hintSize,
+              error: this.state.__err
+            })
+          );
+        }
+        this.__reconcileLogic();
+        if (!r.tpl) {
+          return h(
+            "div",
+            hostBase,
+            h(Placeholder, { name: this.__name, hintSize: this.props.__hintSize })
+          );
+        }
+        const userProps = this.__userProps();
+        this.logic.props = userProps;
+        let vals = userProps;
+        let renderErr = r.logicError || this.__ctorError;
+        try {
+          vals = { ...userProps, ...this.logic.renderVals() || {} };
+        } catch (e) {
+          console.error(e);
+          renderErr = this.__name + ".renderVals(): " + (e instanceof Error && e.message ? e.message : String(e));
+        }
+        this.__streamingNow = !!(r.htmlStreaming || r.jsStreaming);
+        this.__htmlStreamingNow = !!r.htmlStreaming;
+        return h(
+          "div",
+          { ...hostBase, className: cls + (renderErr ? " sc-has-error" : "") },
+          renderErr && h(
+            "div",
+            { className: "sc-logic-error", "data-omelette-chrome": "" },
+            renderErr
+          ),
+          h(
+            AncestorContext.Provider,
+            { value: [...chain, this.__name] },
+            r.tpl(vals, this)
+          )
+        );
+      }
+    }
+    __publicField(StreamableComponent, "contextType", AncestorContext);
+    const named = /* @__PURE__ */ new Map();
+    function getDC(name) {
+      const hit = named.get(name);
+      if (hit) return hit;
+      function Dispatcher(p) {
+        const [, setTick] = React.useState(0);
+        React.useEffect(() => {
+          const sub = () => setTick((n) => n + 1);
+          registry.get(name).subs.add(sub);
+          return () => {
+            registry.get(name).subs.delete(sub);
+          };
+        }, []);
+        ensureFetched(name);
+        return h(StreamableComponent, { ...p, __name: name });
+      }
+      Dispatcher.displayName = name;
+      named.set(name, Dispatcher);
+      return Dispatcher;
+    }
+    return {
+      getDC,
+      StreamableComponent
+    };
+  }
+
+  // src/bundled.ts
+  function bundledBlob(url) {
+    const blobs = window.__resourceBlobs;
+    const b = blobs ? blobs[url.split("#")[0]] : void 0;
+    return b instanceof Blob ? b : null;
+  }
+
+  // src/cdn.ts
+  var REACT_URL = "https://unpkg.com/react@18.3.1/umd/react.production.min.js";
+  var REACT_SRI = "sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z";
+  var REACT_DOM_URL = "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js";
+  var REACT_DOM_SRI = "sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1";
+  var BABEL_URL = "https://unpkg.com/@babel/standalone@7.29.0/babel.min.js";
+  var BABEL_SRI = "sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y";
+  function cdnScriptFor(url, sri) {
+    const res = window.__resources;
+    const v = res ? res[url] : void 0;
+    return typeof v === "string" && v ? { src: v } : { src: url, integrity: sri };
+  }
+
+  // src/external.ts
+  var isCustomElementName = (n) => !n.includes(".") && n.includes("-");
+  function isRenderableType(g) {
+    if (typeof g === "function") return !isElementClass(g);
+    return typeof g === "object" && g !== null && typeof g.$$typeof === "symbol";
+  }
+  function resolveDottedPath(root, name) {
+    let cur = root;
+    for (const seg of name.split(".")) {
+      if (cur == null) return void 0;
+      cur = cur[seg];
+    }
+    return cur;
+  }
+  var GLOBAL_POLL_INTERVAL_MS = 50;
+  var GLOBAL_POLL_TIMEOUT_MS = 3e4;
+  function createExternalModules(onResolved) {
+    const cache = /* @__PURE__ */ new Map();
+    let babelLoading = null;
+    const reportedMissing = /* @__PURE__ */ new Map();
+    const polling = /* @__PURE__ */ new Set();
+    function ensureBabel() {
+      if (window.Babel) return Promise.resolve();
+      if (babelLoading) return babelLoading;
+      const babel = cdnScriptFor(BABEL_URL, BABEL_SRI);
+      babelLoading = new Promise((res, rej) => {
+        const s = document.createElement("script");
+        s.src = babel.src;
+        if (babel.integrity) {
+          s.integrity = babel.integrity;
+          s.crossOrigin = "anonymous";
+        }
+        s.onload = () => res();
+        s.onerror = rej;
+        document.head.appendChild(s);
+      });
+      return babelLoading;
+    }
+    const pending = /* @__PURE__ */ new Map();
+    function load(kind, url, after) {
+      const existing = pending.get(url);
+      if (existing) return existing;
+      cache.set(url, null);
+      console.info("[dc-runtime] x-import: loading", url, "(" + kind + ")");
+      const ready = Promise.all([
+        kind === "jsx" ? ensureBabel() : Promise.resolve(),
+        after ?? Promise.resolve()
+      ]);
+      const p = ready.then(() => {
+        const pre = bundledBlob(url);
+        if (pre) return pre.text();
+        return fetch(url).then((r) => {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.text();
+        });
+      }).then((src) => {
+        const code = kind === "jsx" ? window.Babel.transform(src, {
+          filename: url,
+          presets: ["react", "typescript"]
+        }).code : src;
+        const module = { exports: {} };
+        const before = new Set(Object.keys(window));
+        //! nosemgrep: eval-and-function-constructor
+        new Function("React", "module", "exports", "require", code)(
+          getReact(),
+          module,
+          module.exports,
+          () => ({})
+        );
+        const globals = {};
+        for (const k of Object.keys(window)) {
+          if (!before.has(k) && typeof window[k] === "function") {
+            globals[k] = window[k];
+          }
+        }
+        cache.set(url, { mod: module.exports, globals });
+        console.info(
+          "[dc-runtime] x-import: loaded",
+          url,
+          "\u2014 exports:",
+          Object.keys(module.exports),
+          "window globals:",
+          Object.keys(globals)
+        );
+        onResolved();
+      }).catch((e) => {
+        cache.set(url, {
+          mod: {},
+          globals: {},
+          error: "failed to load: " + (e instanceof Error && e.message ? e.message : String(e))
+        });
+        console.error(
+          "[dc-runtime] x-import: FAILED to load",
+          url,
+          "(" + kind + ")",
+          e
+        );
+        onResolved();
+      });
+      pending.set(url, p);
+      return p;
+    }
+    function resolve2(url, name) {
+      const entry = cache.get(url);
+      if (!entry) return null;
+      const { mod, globals } = entry;
+      const C = mod && mod[name] || globals && globals[name] || typeof window !== "undefined" && window[name] || mod && mod.default;
+      if (typeof C === "function") return C;
+      const key = url + "\0" + name;
+      if (!reportedMissing.has(key)) {
+        reportedMissing.set(
+          key,
+          entry.error || 'no export named "' + name + '" (has: ' + Object.keys(mod).join(", ") + ")"
+        );
+        console.error(
+          "[dc-runtime] x-import: module",
+          url,
+          "loaded but has no component named",
+          JSON.stringify(name),
+          "\u2014 available exports:",
+          Object.keys(mod),
+          "window globals:",
+          Object.keys(globals),
+          ". The module must `module.exports = {" + name + "}` or set `window." + name + "`."
+        );
+      }
+      return null;
+    }
+    function waitForGlobal(name) {
+      if (polling.has(name)) return;
+      polling.add(name);
+      const started = Date.now();
+      const isCE = isCustomElementName(name);
+      const tick = () => {
+        const found = isCE ? customElements.get(name) : isRenderableType(resolveDottedPath(window, name));
+        if (found) {
+          polling.delete(name);
+          onResolved();
+          return;
+        }
+        if (Date.now() - started >= GLOBAL_POLL_TIMEOUT_MS) {
+          console.warn(
+            "[dc-runtime] x-import: global",
+            JSON.stringify(name),
+            "never appeared on window after " + GLOBAL_POLL_TIMEOUT_MS + "ms"
+          );
+          return;
+        }
+        setTimeout(tick, GLOBAL_POLL_INTERVAL_MS);
+      };
+      setTimeout(tick, GLOBAL_POLL_INTERVAL_MS);
+    }
+    function resolveGlobal(url, name) {
+      const isCE = isCustomElementName(name);
+      if (!url) {
+        if (isCE) {
+          if (customElements.get(name)) return name;
+          waitForGlobal(name);
+          return null;
+        }
+        const g2 = resolveDottedPath(window, name);
+        if (isRenderableType(g2)) return g2;
+        waitForGlobal(name);
+        return null;
+      }
+      const entry = cache.get(url);
+      if (!entry) return null;
+      if (isCE && customElements.get(name)) return name;
+      const g = entry.globals[name] ?? resolveDottedPath(window, name);
+      if (isRenderableType(g)) return g;
+      if (name.includes(".")) return null;
+      const key = url + "\0global\0" + name;
+      if (!reportedMissing.has(key)) {
+        reportedMissing.set(key, null);
+        if (isCE && !customElements.get(name)) {
+          console.warn(
+            "[dc-runtime] x-import:",
+            url,
+            "loaded but no custom element",
+            JSON.stringify(name),
+            "is registered and window." + name + " is not a function \u2014 rendering <" + name + "> as an unknown element."
+          );
+        }
+      }
+      return name;
+    }
+    function getError(url, name) {
+      const entry = cache.get(url);
+      if (entry?.error) return entry.error;
+      return reportedMissing.get(url + "\0" + name) || null;
+    }
+    return { load, resolve: resolve2, resolveGlobal, getError };
+  }
+  function isElementClass(g) {
+    try {
+      return typeof g === "function" && typeof HTMLElement !== "undefined" && g.prototype instanceof HTMLElement;
+    } catch {
+      return false;
+    }
+  }
+
+  // src/atomics.ts
+  var ATOMIC_CSS = (
+    // layout
+    ".fx{display:flex}.col{display:flex;flex-direction:column}.grid{display:grid}.ac{align-items:center}.jc{justify-content:center}.jb{justify-content:space-between}.f1{flex:1}.noshrink{flex-shrink:0}.wrap{flex-wrap:wrap}.fw5{font-weight:500}.fw6{font-weight:600}.fw7{font-weight:700}.fw8{font-weight:800}.fs11{font-size:11px}.fs12{font-size:12px}.fs13{font-size:13px}.fs14{font-size:14px}.fs15{font-size:15px}.fs16{font-size:16px}.fs20{font-size:20px}.fs22{font-size:22px}.upper{text-transform:uppercase}.tc{text-align:center}.nowrap{white-space:nowrap}.gap8{gap:8px}.gap10{gap:10px}.gap12{gap:12px}.gap16{gap:16px}.gap24{gap:24px}.m0{margin:0}.mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}.mb8{margin-bottom:8px}.mb12{margin-bottom:12px}.mb16{margin-bottom:16px}.posrel{position:relative}.posabs{position:absolute}.round{border-radius:50%}.ohide{overflow:hidden}.bbox{box-sizing:border-box}.pointer{cursor:pointer}.w100{width:100%}.b0{border:none}"
+  );
+
+  // src/helmet.ts
+  var DESIGN_DOC_MODE_RE = /<meta\b[^>]*\bname\s*=\s*["']design_doc_mode["'][^>]*\b(?:content|value)\s*=\s*["'](\w+)["']/i;
+  var CANVAS_BG_LIGHT = "#f0eee6";
+  var CANVAS_BG_DARK = "#2e2c26";
+  function createHelmetManager(doc, isStreaming) {
+    const mounted = /* @__PURE__ */ new Set();
+    const live = /* @__PURE__ */ new Map();
+    let designDocMode = null;
+    let canvasStyleEl = null;
+    let appTheme = "light";
+    try {
+      const ds = doc.documentElement.dataset.theme;
+      appTheme = ds === "dark" || ds === "light" ? ds : new URLSearchParams(doc.defaultView?.location.search ?? "").get(
+        "theme"
+      ) === "dark" ? "dark" : "light";
+    } catch {
+    }
+    function applyCanvasBg() {
+      if (!canvasStyleEl) return;
+      const bg = appTheme === "dark" ? CANVAS_BG_DARK : CANVAS_BG_LIGHT;
+      canvasStyleEl.textContent = `html,body{background:${bg}}#dc-root>.sc-host{position:relative}`;
+    }
+    function postDesignMode(mode) {
+      if (window.parent === window) return;
+      try {
+        window.parent.postMessage({ type: "__dc_design_mode", mode }, "*");
+      } catch {
+      }
+    }
+    function setDesignDocMode(mode) {
+      if (mode === designDocMode) return;
+      designDocMode = mode;
+      postDesignMode(mode);
+      if (mode === "canvas") {
+        doc.documentElement.setAttribute("data-dc-canvas", "");
+        canvasStyleEl = doc.createElement("style");
+        canvasStyleEl.setAttribute("data-dc-canvas", "");
+        applyCanvasBg();
+        doc.head.appendChild(canvasStyleEl);
+      } else {
+        doc.documentElement.removeAttribute("data-dc-canvas");
+        canvasStyleEl?.remove();
+        canvasStyleEl = null;
+      }
+    }
+    window.addEventListener("message", (e) => {
+      const type = e.data && e.data.type;
+      if (type === "__dc_theme") {
+        const t = e.data.theme;
+        if (t === "light" || t === "dark") {
+          appTheme = t;
+          applyCanvasBg();
+        }
+        return;
+      }
+      if (!designDocMode || type !== "__dc_probe") return;
+      postDesignMode(designDocMode);
+    });
+    function compile(node) {
+      const raw = [...node.children];
+      const helmetClosed = node.nextSibling != null || node.parentNode?.nextSibling != null;
+      if (node.hasAttribute("data-dc-atomics") && !mounted.has("__dc-atomics")) {
+        mounted.add("__dc-atomics");
+        const el = doc.createElement("style");
+        el.id = "__dc-atomics";
+        el.textContent = ATOMIC_CSS;
+        doc.head.appendChild(el);
+      }
+      return (_vals, ctx) => {
+        const name = ctx && ctx.__name || "";
+        const streaming = !!(name && isStreaming(name));
+        for (let i = 0; i < raw.length; i++) {
+          const child = raw[i];
+          const tag = child.tagName;
+          const mayBePartial = streaming && !helmetClosed && i === raw.length - 1;
+          if (tag === "SCRIPT") {
+            if (mayBePartial) continue;
+            const key = "SCRIPT|" + (child.getAttribute("src") || child.textContent || "");
+            if (mounted.has(key)) continue;
+            mounted.add(key);
+            const el = doc.createElement("script");
+            for (const { name: an, value } of [...child.attributes])
+              el.setAttribute(an, value);
+            if (child.textContent) el.textContent = child.textContent;
+            doc.head.appendChild(el);
+          } else if (tag === "LINK" || tag === "META") {
+            if (mayBePartial) continue;
+            const key = tag + "|" + (child.getAttribute("href") || child.getAttribute("src") || child.outerHTML);
+            if (mounted.has(key)) continue;
+            mounted.add(key);
+            if (tag === "LINK") {
+              const rel = (child.getAttribute("rel") || "").toLowerCase().split(/\s+/);
+              const href = (child.getAttribute("href") || "").trim();
+              const res = window.__resources;
+              const pre = res && rel.includes("stylesheet") && !rel.includes("alternate") ? res[href] : void 0;
+              const blob = typeof pre === "string" && pre ? bundledBlob(pre) : null;
+              if (blob) {
+                const el = doc.createElement("style");
+                if (child.hasAttribute("disabled")) {
+                  el.setAttribute("media", "not all");
+                } else if (child.getAttribute("media")) {
+                  el.setAttribute("media", child.getAttribute("media"));
+                }
+                if (child.getAttribute("title"))
+                  el.setAttribute("title", child.getAttribute("title"));
+                void blob.text().then((css) => {
+                  el.textContent = css;
+                });
+                doc.head.appendChild(el);
+                continue;
+              }
+            }
+            doc.head.appendChild(child.cloneNode(true));
+          } else {
+            const key = name + "|" + i;
+            let el = live.get(key);
+            if (!el || el.tagName !== tag) {
+              if (el) el.remove();
+              el = doc.createElement(tag.toLowerCase());
+              live.set(key, el);
+              doc.head.appendChild(el);
+            }
+            for (const { name: an, value } of [...child.attributes]) {
+              if (el.getAttribute(an) !== value) el.setAttribute(an, value);
+            }
+            if (el.textContent !== child.textContent)
+              el.textContent = child.textContent;
+          }
+        }
+        return null;
+      };
+    }
+    return { compile, setDesignDocMode };
+  }
+
+  // src/pseudo.ts
+  function scanUnquotedUrl(css, i) {
+    if (css[i] !== "u" && css[i] !== "U" || css.slice(i, i + 4).toLowerCase() !== "url(" || /[a-z0-9_-]/i.test(css[i - 1] ?? "")) {
+      return -1;
+    }
+    let j = i + 4;
+    while (j < css.length && /\s/.test(css[j])) j++;
+    if (css[j] === '"' || css[j] === "'") return -1;
+    while (j < css.length && css[j] !== ")") {
+      if (css[j] === "\\") j++;
+      j++;
+    }
+    return j < css.length ? j + 1 : css.length;
+  }
+  function stripComments(css) {
+    let out = "";
+    let quote = "";
+    for (let i = 0; i < css.length; i++) {
+      const c = css[i];
+      if (quote) {
+        if (c === "\\") {
+          out += c + (css[i + 1] ?? "");
+          i++;
+          continue;
+        }
+        if (c === quote) quote = "";
+        out += c;
+      } else if (c === "'" || c === '"') {
+        quote = c;
+        out += c;
+      } else if (c === "/" && css[i + 1] === "*") {
+        const end = css.indexOf("*/", i + 2);
+        i = end === -1 ? css.length : end + 1;
+        out += " ";
+      } else {
+        const end = scanUnquotedUrl(css, i);
+        if (end === -1) out += c;
+        else {
+          out += css.slice(i, end);
+          i = end - 1;
+        }
+      }
+    }
+    return out;
+  }
+  function importantify(css) {
+    css = stripComments(css);
+    const decls = [];
+    let start = 0;
+    let depth = 0;
+    let quote = "";
+    for (let i = 0; i < css.length; i++) {
+      const c = css[i];
+      if (quote) {
+        if (c === "\\") i++;
+        else if (c === quote) quote = "";
+      } else if (c === "'" || c === '"') quote = c;
+      else if (c === "(") depth++;
+      else if (c === ")") depth = Math.max(0, depth - 1);
+      else if (c === ";" && depth === 0) {
+        decls.push(css.slice(start, i));
+        start = i + 1;
+      } else {
+        const end = scanUnquotedUrl(css, i);
+        if (end !== -1) i = end - 1;
+      }
+    }
+    decls.push(css.slice(start));
+    return decls.map((d) => d.trim()).filter(Boolean).map((d) => /!\s*important$/i.test(d) ? d : d + " !important").join(";");
+  }
+  function createPseudoSheet(doc) {
+    let el = null;
+    const cache = /* @__PURE__ */ new Map();
+    let n = 0;
+    return (pseudo, css) => {
+      const k = pseudo + "|" + css;
+      const hit = cache.get(k);
+      if (hit) return hit;
+      if (!el) {
+        el = doc.createElement("style");
+        doc.head.appendChild(el);
+      }
+      const cls = "scp" + (n++).toString(36);
+      const isPseudoElement = pseudo === "before" || pseudo === "after";
+      const sel = isPseudoElement ? "." + cls + "::" + pseudo : "." + cls + ":" + pseudo;
+      el.sheet.insertRule(
+        sel + "{" + (isPseudoElement ? css : importantify(css)) + "}",
+        el.sheet.cssRules.length
+      );
+      cache.set(k, cls);
+      return cls;
+    };
+  }
+
+  // src/registry.ts
+  function createRegistry() {
+    const entries = /* @__PURE__ */ Object.create(null);
+    function get(name) {
+      return entries[name] || (entries[name] = {
+        html: "",
+        tpl: null,
+        Logic: null,
+        jsStreaming: false,
+        htmlStreaming: false,
+        ver: 0,
+        subs: /* @__PURE__ */ new Set(),
+        fetched: false
+      });
+    }
+    function bump(name) {
+      const r = get(name);
+      r.ver++;
+      for (const fn of r.subs) fn();
+    }
+    return {
+      entries,
+      get,
+      bump,
+      bumpAll() {
+        for (const n in entries) bump(n);
+      }
+    };
+  }
+
+  // src/runtime.ts
+  var COMPONENT_DIR = ".";
+  function createRuntime(doc = document) {
+    const registry = createRegistry();
+    const pseudoClass = createPseudoSheet(doc);
+    const helmet = createHelmetManager(
+      doc,
+      (name) => registry.get(name).htmlStreaming
+    );
+    const external = createExternalModules(() => registry.bumpAll());
+    const factory = createComponentFactory(registry, ensureFetched);
+    const host = {
+      component: (name) => factory.getDC(name),
+      placeholder: (props) => h(Placeholder, props),
+      helmet: (node) => helmet.compile(node),
+      loadExternal: (kind, url, after) => external.load(kind, url, after),
+      resolveExternal: (url, name) => external.resolve(url, name),
+      resolveExternalGlobal: (url, name) => external.resolveGlobal(url, name),
+      resolveExternalError: (url, name) => external.getError(url, name),
+      pseudoClass
+    };
+    function ensureFetched(name) {
+      const r = registry.get(name);
+      if (r.fetched) return;
+      r.fetched = true;
+      const url = COMPONENT_DIR + "/" + encodeURIComponent(name) + ".dc.html";
+      const res = window.__resources;
+      const pre = res ? res[url] : void 0;
+      const target = typeof pre === "string" && pre ? pre : url;
+      const blob = bundledBlob(target);
+      (blob ? blob.text() : fetch(target).then((res2) => {
+        if (!res2.ok) {
+          console.error(
+            '[dc-runtime] sibling fetch for "' + name + '" failed:',
+            url,
+            "returned",
+            res2.status,
+            "\u2014 the reference renders as an empty placeholder."
+          );
+          return "";
+        }
+        return res2.text();
+      })).then((t) => {
+        if (!t) return;
+        const parsed = parseDcText(t);
+        if (!parsed) {
+          console.error(
+            '[dc-runtime] sibling fetch for "' + name + '":',
+            url,
+            "has no <\x78-dc> block \u2014 not a Design Component."
+          );
+          return;
+        }
+        if (parsed.props) r.propsMeta = parsed.props;
+        if (parsed.preview) r.preview = parsed.preview;
+        if (parsed.template && !r.html) updateHtml(name, parsed.template);
+        if (parsed.js && !r.Logic) updateJs(name, parsed.js);
+      }).catch(
+        (e) => console.error(
+          '[dc-runtime] sibling fetch for "' + name + '" threw:',
+          url,
+          e
+        )
+      );
+    }
+    let rootName = null;
+    function updateHtml(name, html) {
+      const r = registry.get(name);
+      r.html = html;
+      if (name === rootName) {
+        const mode = DESIGN_DOC_MODE_RE.exec(html)?.[1] ?? null;
+        if (mode || !r.htmlStreaming) helmet.setDesignDocMode(mode);
+      }
+      try {
+        r.tpl = compileTemplate(html, host);
+      } catch (e) {
+        console.error("[dc-runtime] template compile FAILED for", name, e);
+      }
+      registry.bump(name);
+    }
+    function updateJs(name, src) {
+      const r = registry.get(name);
+      const seq = r.jsSeq = (r.jsSeq || 0) + 1;
+      try {
+        const Cls = evalDcLogic(src);
+        if (r.jsSeq !== seq) return;
+        if (typeof Cls !== "function") {
+          r.logicError = name + ".dc.html: <script data-dc-script> must define `class Component extends DCLogic`";
+        } else {
+          r.logicError = null;
+          r.Logic = Cls;
+        }
+      } catch (e) {
+        if (r.jsSeq !== seq) return;
+        console.error(
+          "[dc-runtime] logic class eval FAILED for",
+          name,
+          "\u2014 the template renders with props only.",
+          e
+        );
+        r.logicError = name + ": " + (e instanceof Error && e.message ? e.message : String(e));
+      }
+      registry.bump(name);
+    }
+    function setStreaming(name, kind, on) {
+      const r = registry.get(name);
+      if (kind === "html") r.htmlStreaming = !!on;
+      else r.jsStreaming = !!on;
+      let any = false;
+      for (const n in registry.entries) {
+        const e = registry.entries[n];
+        if (e && (e.htmlStreaming || e.jsStreaming)) {
+          any = true;
+          break;
+        }
+      }
+      doc.documentElement.classList.toggle("sc-dc-streaming", any);
+      registry.bump(name);
+    }
+    function dcUpdate(name, kind, content, streaming) {
+      if (streaming) registry.get(name).fetched = true;
+      if (kind === "html") {
+        setStreaming(name, "html", !!streaming);
+        updateHtml(name, content);
+      } else if (kind === "js") {
+        setStreaming(name, "js", !!streaming);
+        if (!streaming) updateJs(name, content);
+      } else if (kind === "props") {
+        const { props, preview } = parseDataProps(content);
+        const r = registry.get(name);
+        r.propsMeta = props ?? void 0;
+        r.preview = preview;
+        registry.bump(name);
+      }
+    }
+    function setProps(name, overrides) {
+      registry.get(name).propOverrides = overrides && typeof overrides === "object" ? { ...overrides } : null;
+      registry.bump(name);
+    }
+    function adoptParsed(name, parsed) {
+      if (!parsed) return;
+      const r = registry.get(name);
+      if (parsed.props) r.propsMeta = parsed.props;
+      if (parsed.preview) r.preview = parsed.preview;
+      if (parsed.template) updateHtml(name, parsed.template);
+      if (parsed.js) updateJs(name, parsed.js);
+    }
+    return {
+      registry,
+      getDC: factory.getDC,
+      updateHtml,
+      updateJs,
+      dcUpdate,
+      setProps,
+      adoptParsed,
+      setRootName: (name) => {
+        rootName = name;
+      },
+      markFetched: (name) => {
+        registry.get(name).fetched = true;
+      },
+      annotatedTemplate: (name) => {
+        const r = registry.get(name);
+        return r.tpl && r.tpl.__annotated || null;
+      },
+      templateSource: (name) => registry.get(name).html || null,
+      StreamableLogic
+    };
+  }
+
+  // src/stream-state.ts
+  function createStreamTracker(staleMs = 6e4, now = Date.now) {
+    const since = /* @__PURE__ */ new Map();
+    const liveOne = (n) => {
+      const t = since.get(n);
+      if (t === void 0) return false;
+      if (now() - t > staleMs) {
+        since.delete(n);
+        return false;
+      }
+      return true;
+    };
+    return {
+      push(name, streaming, viewportKey) {
+        if (viewportKey === "dc-model") return;
+        if (streaming) since.set(name, now());
+        else since.delete(name);
+      },
+      live(name) {
+        if (name !== void 0) return liveOne(name);
+        for (const n of [...since.keys()]) if (liveOne(n)) return true;
+        return false;
+      }
+    };
+  }
+
+  // src/index.ts
+  function hideRawTemplate() {
+    const s = document.createElement("style");
+    s.textContent = "x-dc{display:none!important}";
+    document.head.appendChild(s);
+  }
+  function loadScript(src, integrity) {
+    return new Promise((resolve2, reject) => {
+      //! nosemgrep: create-script-element
+      const s = document.createElement("script");
+      s.src = src;
+      if (integrity) {
+        s.integrity = integrity;
+        s.crossOrigin = "anonymous";
+      }
+      s.async = false;
+      s.onload = () => resolve2();
+      s.onerror = () => reject(new Error(`failed to load ${src}`));
+      document.head.appendChild(s);
+    });
+  }
+  function loadReactUmd() {
+    const w = window;
+    if (w.React && w.ReactDOM) return Promise.resolve();
+    const react = cdnScriptFor(REACT_URL, REACT_SRI);
+    const reactDom = cdnScriptFor(REACT_DOM_URL, REACT_DOM_SRI);
+    return Promise.all([
+      loadScript(react.src, react.integrity),
+      loadScript(reactDom.src, reactDom.integrity)
+    ]).then(() => void 0);
+  }
+  function init() {
+    const runtime = createRuntime(document);
+    let rootName = "Root";
+    const baseCss = document.createElement("style");
+    baseCss.textContent = BASE_CSS;
+    document.head.prepend(baseCss);
+    const notifyHost = () => {
+      if (window.parent === window) return;
+      const r = runtime.registry.entries[rootName];
+      try {
+        window.parent.postMessage(
+          {
+            type: "__dc_booted",
+            rootName,
+            propsMeta: r && r.propsMeta || null,
+            preview: r && r.preview || null
+          },
+          "*"
+        );
+      } catch {
+      }
+    };
+    const streams = createStreamTracker();
+    const api = {
+      __dcUpdate: (name, kind, content, streaming, viewportKey) => {
+        streams.push(name, streaming, viewportKey);
+        runtime.dcUpdate(name, kind, content, streaming);
+        if (name === rootName && !streaming && kind === "props") notifyHost();
+      },
+      __dcStreaming: (name) => streams.live(name),
+      __dcSetProps: (name, overrides) => runtime.setProps(name, overrides),
+      /** Name of the component currently mounted as the page root — DC tools
+       *  push their template-stream here when targeting "the open page". */
+      __dcRootName: () => rootName,
+      /** Editor bridge — the encoded, `data-dc-tpl`-annotated template source.
+       *  The host editor parses this into its own template DOM so it can map a
+       *  rendered node (carrying the same `data-dc-tpl`) back to the source
+       *  node that emitted it. Returns the encoded form (`sc-camel-*` attrs,
+       *  `<sc-raw-*>`/`<sc-helmet>` tags); the editor decodes on serialize. */
+      __dcAnnotatedTemplate: (name) => runtime.annotatedTemplate(name),
+      /** Editor bridge — the *original* (decoded) template source. */
+      __dcTemplateSource: (name) => runtime.templateSource(name),
+      __dcBoot: () => {
+        rootName = boot(runtime, document) ?? rootName;
+        notifyHost();
+      },
+      __dcRegistry: runtime.registry.entries,
+      getDC: (name) => runtime.getDC(name),
+      // `DCLogic` is the documented base class name; `StreamableLogic` is the
+      // implementation alias kept for any project that already references it.
+      DCLogic: runtime.StreamableLogic,
+      StreamableLogic: runtime.StreamableLogic
+    };
+    Object.assign(window, api);
+    window.__dcContentKeyed = true;
+    if (document.readyState !== "loading") api.__dcBoot();
+    else document.addEventListener("DOMContentLoaded", () => api.__dcBoot());
+  }
+  hideRawTemplate();
+  loadReactUmd().then(init).catch((err) => {
+    console.error("[dc] failed to load React or boot:", err);
+    throw err;
+  });
+})();
+
+
+</script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&amp;family=Outfit:wght@100;200;300&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#fff;font-family:'DM Sans',system-ui,sans-serif;color:#0e1a24;-webkit-font-smoothing:antialiased}
+a{color:#3a8db1;text-decoration:none}a:hover{color:#0e1a24}
+textarea:focus{outline:none;border-color:#5aafd4 !important;background:#fff !important}
+@keyframes dash{to{stroke-dashoffset:-32}}
+@keyframes pulse{0%{transform:scale(1);opacity:.6}100%{transform:scale(1.45);opacity:0}}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;overflow-x:hidden">
+
+  <sc-if value="{{ isMap }}" hint-placeholder-val="{{ true }}">
+    <div style="max-width:1240px;margin:0 auto;padding:36px clamp(20px,4vw,48px) 56px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:22px;padding:8px 0 40px;transition:opacity .4s;opacity:{{ chromeOpacity }}">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:14px;max-width:760px">
+          <span style="font-size:11px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#3a8db1">Google DeepMind · AI Research Foundations</span>
+          <h1 style="font-family:'Outfit',system-ui,sans-serif;font-size:clamp(36px,5.6vw,68px);font-weight:200;line-height:1.05;letter-spacing:-.02em;margin:0;text-wrap:balance">Developing models for real-world impact</h1>
+          <p style="font-family:'Outfit',system-ui,sans-serif;font-size:17px;font-weight:300;line-height:1.6;color:#4a5762;margin:0">Seven steps, in order. Click any step to zoom in. {{ progressLabel }}.</p>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;align-items:center">
+          <div style="display:flex;gap:8px;white-space:nowrap">
+            <span style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:20px;background:#fbe6e6;font-size:12.5px;font-weight:600;color:#9c3b3b"><span style="width:8px;height:8px;border-radius:50%;background:#d06060"></span>Not started</span>
+            <span style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:20px;background:#fff0da;font-size:12.5px;font-weight:600;color:#a4611a"><span style="width:8px;height:8px;border-radius:50%;background:#ec9a3e"></span>On going</span>
+            <span style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:20px;background:#ddf3e8;font-size:12.5px;font-weight:600;color:#237a52"><span style="width:8px;height:8px;border-radius:50%;background:#3faa77"></span>Completed</span>
+          </div>
+          <button onClick="{{ continueClick }}" style="all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:10px;padding:12px 20px;border-radius:30px;background:#0e1a24;color:#fff;font-size:13.5px;font-weight:600" style-hover="background:#3a8db1"><i class="ri-play-circle-line" style="font-size:18px"></i>{{ continueLabel }}</button>
+        </div>
+      </div>
+
+      <div style="overflow-x:auto;scrollbar-width:none;margin:0 -12px;padding:0 12px">
+        <div style="position:relative;min-width:760px;aspect-ratio:1000/540;transition:transform .75s cubic-bezier(.7,0,.25,1),opacity .6s ease;transform:{{ mapTransform }};transform-origin:{{ mapOrigin }};opacity:{{ mapOpacity }}">
+          {{ mapSvg }}
+          <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="8">
+            <button onClick="{{ n.onClick }}" style="all:unset;cursor:pointer;position:absolute;width:130px;display:flex;align-items:center;gap:8px;text-align:center;left:{{ n.left }};top:{{ n.top }};transform:{{ n.anchor }};flex-direction:{{ n.dir }}">
+              <span style="position:relative;width:96px;height:96px;display:flex;align-items:center;justify-content:center">
+                {{ n.pulse }}
+                <span style="position:absolute;inset:0;border-radius:50%;transition:transform .3s,box-shadow .3s;background:{{ n.soft }};box-shadow:0 0 0 3px #fff,0 0 0 5px {{ n.dot }};transform:scale({{ n.scale }})"></span>
+                <span style="position:relative;width:54px;height:54px;background:center/contain no-repeat;background-image:url({{ n.icon }});animation:{{ n.bob }}"></span>
+                <span style="position:absolute;top:-2px;left:-2px;width:28px;height:28px;border-radius:50%;background:#0e1a24;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;box-shadow:0 0 0 3px #fff">{{ n.num }}</span>
+              </span>
+              <span style="display:flex;flex-direction:column;align-items:center;gap:5px">
+                <span style="font-size:14px;font-weight:700;line-height:1.25">{{ n.short }}</span>
+                <span style="display:flex;align-items:center;gap:6px;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:600;white-space:nowrap;background:{{ n.soft }};color:{{ n.ink }}">{{ n.statusLabel }} · {{ n.meta }}</span>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isDetail }}" hint-placeholder-val="{{ false }}">
+    <div style="transition:opacity .45s ease,transform .45s ease;opacity:{{ panelOpacity }};transform:{{ panelTransform }}">
+      <div style="position:sticky;top:0;z-index:5;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);border-bottom:1px solid #eef0f2">
+        <div style="max-width:1240px;margin:0 auto;padding:12px clamp(16px,3vw,40px);display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+          <button onClick="{{ backToMap }}" style="all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border-radius:24px;border:1px solid #e6e8eb;font-size:13px;font-weight:600" style-hover="border-color:#5aafd4;color:#3a8db1"><i class="ri-map-2-line" style="font-size:16px"></i>Back to map</button>
+          <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+            <sc-for list="{{ nodes }}" as="m" hint-placeholder-count="7">
+              <button onClick="{{ m.jump }}" title="{{ m.short }}" style="all:unset;cursor:pointer;position:relative;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:all .2s;background:{{ m.miniBg }};box-shadow:{{ m.miniRing }}">
+                <span style="width:22px;height:22px;background:center/contain no-repeat;background-image:url({{ m.icon }})"></span>
+                <span style="position:absolute;right:1px;bottom:1px;width:9px;height:9px;border-radius:50%;border:2px solid #fff;background:{{ m.dot }}"></span>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <sc-if value="{{ isStep }}" hint-placeholder-val="{{ true }}">
+        <div style="max-width:1240px;margin:0 auto;padding:32px clamp(16px,3vw,40px) 80px;display:flex;flex-direction:column;gap:22px">
+          <section style="display:flex;gap:22px;align-items:center;flex-wrap:wrap">
+            <span style="width:88px;height:88px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:0 0 auto;background:{{ step.soft }}"><span style="width:52px;height:52px;background:center/contain no-repeat;background-image:url({{ step.icon }})"></span></span>
+            <div style="display:flex;flex-direction:column;gap:8px;flex:1 1 420px;min-width:0">
+              <div style="display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#8a96a2">
+                <span style="color:#3a8db1">Step {{ step.num }} of 7</span>
+                <span style="display:flex;align-items:center;gap:6px"><i class="ri-time-line"></i>{{ step.minutes }}</span>
+                <span style="font-family:'DM Sans',sans-serif;letter-spacing:0;text-transform:none;padding:3px 10px;border-radius:12px;font-size:11.5px;font-weight:600;background:{{ step.soft }};color:{{ step.ink }}">{{ step.statusLabel }}</span>
+              </div>
+              <h2 style="font-family:'Cormorant Garamond',Georgia,serif;font-size:clamp(30px,3.4vw,42px);font-weight:600;line-height:1.08;margin:0;text-wrap:balance">{{ step.title }}</h2>
+            </div>
+          </section>
+          <p style="font-size:15.5px;line-height:1.7;color:#4a5762;margin:0;max-width:760px;text-wrap:pretty">{{ step.intro }}</p>
+          <sc-if value="{{ step.hasNotice }}" hint-placeholder-val="{{ false }}">
+            <div style="font-size:13.5px;line-height:1.6;color:#4a5762;background:#f6f7f8;border:1px dashed #cfd5da;border-radius:10px;padding:14px 16px;max-width:760px">{{ step.notice }}</div>
+          </sc-if>
+
+          <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
+            <div style="flex:1 1 560px;min-width:0;display:flex;flex-direction:column;gap:18px">
+              <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+                <span style="font-size:11px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:#8a96a2;margin-right:6px">Tasks</span>
+                <sc-for list="{{ step.chips }}" as="c" hint-placeholder-count="5">
+                  <button onClick="{{ c.onClick }}" title="{{ c.title }}" style="all:unset;cursor:pointer;min-width:36px;height:36px;padding:0 10px;border-radius:18px;display:flex;align-items:center;justify-content:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:12px;transition:all .25s;background:{{ c.bg }};color:{{ c.fg }};border:1px solid {{ c.border }}"><i class="{{ c.icon }}"></i>{{ c.num }}</button>
+                </sc-for>
+              </div>
+
+              <article style="background:#fff;border:1px solid #e6e8eb;border-radius:16px;box-shadow:0 10px 30px rgba(14,26,36,.06);padding:clamp(22px,3.5vw,40px);display:flex;flex-direction:column;gap:22px;transition:opacity .35s ease,transform .35s ease;opacity:{{ taskOpacity }};transform:{{ taskTransform }}">
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;color:#3a8db1">{{ task.label }}</span>
+                  <p style="font-family:'Cormorant Garamond',Georgia,serif;font-size:clamp(22px,2.4vw,28px);font-weight:600;line-height:1.3;margin:0;text-wrap:pretty">{{ task.text }}</p>
+                </div>
+                <sc-if value="{{ task.hasPrompts }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;flex-direction:column;gap:8px">
+                    <sc-for list="{{ task.prompts }}" as="p" hint-placeholder-count="2">
+                      <div style="display:grid;grid-template-columns:20px 1fr;gap:8px;font-size:15px;line-height:1.55;color:#4a5762"><i class="ri-question-line" style="color:#5aafd4"></i><span>{{ p }}</span></div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ task.hasLink }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ task.onLink }}" style="all:unset;cursor:pointer;align-self:flex-start;display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#3a8db1;border-bottom:1px solid #5aafd4;padding-bottom:2px">{{ task.linkLabel }}<i class="ri-arrow-right-line"></i></button>
+                </sc-if>
+                <sc-for list="{{ task.fields }}" as="f" hint-placeholder-count="1">
+                  <label style="display:flex;flex-direction:column;gap:8px">
+                    <span style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;font-weight:600;letter-spacing:.06em;color:#4a5762"><span>{{ f.label }}</span><span style="font-family:'JetBrains Mono',monospace;font-weight:400;letter-spacing:0;color:{{ f.wcColor }}">{{ f.wc }}</span></span>
+                    <textarea value="{{ f.value }}" onChange="{{ f.onChange }}" rows="{{ f.rows }}" placeholder="Write here — saves automatically" style="width:100%;resize:vertical;font-family:'DM Sans',system-ui,sans-serif;font-size:15px;line-height:1.65;color:#0e1a24;background:#fafbfc;border:1px solid #e6e8eb;border-radius:10px;padding:14px 16px;transition:border-color .2s,background .2s"></textarea>
+                  </label>
+                </sc-for>
+                <sc-if value="{{ task.hasExample }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;flex-direction:column;gap:12px">
+                    <button onClick="{{ task.onToggleExample }}" style="all:unset;cursor:pointer;align-self:flex-start;display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#3a8db1"><i class="{{ task.exampleIcon }}" style="font-size:16px"></i>{{ task.exampleLabel }}</button>
+                    <div style="display:grid;transition:grid-template-rows .4s ease;grid-template-rows:{{ task.exampleRows }}">
+                      <div style="overflow:hidden;min-height:0">
+                        <div style="background:#f6f7f8;border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:10px">
+                          <sc-for list="{{ task.example }}" as="ex" hint-placeholder-count="1">
+                            <p style="font-size:14px;line-height:1.7;color:#4a5762;margin:0;text-wrap:pretty">{{ ex }}</p>
+                          </sc-for>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </sc-if>
+                <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;border-top:1px solid #eef0f2;padding-top:22px">
+                  <button onClick="{{ goBack }}" style="all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border:1px solid #e6e8eb;border-radius:24px;font-size:13px;font-weight:500;color:#4a5762;opacity:{{ backOpacity }}"><i class="ri-arrow-left-line"></i>{{ backLabel }}</button>
+                  <div style="display:flex;gap:10px;flex-wrap:wrap">
+                    <button onClick="{{ task.onToggle }}" style="all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border:1px solid #e6e8eb;border-radius:24px;font-size:13px;font-weight:500;color:{{ task.toggleColor }}"><i class="{{ task.toggleIcon }}"></i>{{ task.toggleLabel }}</button>
+                    <button onClick="{{ goForward }}" style="all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:8px;padding:12px 20px;border-radius:24px;background:#0e1a24;color:#fff;font-size:13px;font-weight:600" style-hover="background:#3a8db1">{{ forwardLabel }}<i class="ri-arrow-right-line"></i></button>
+                  </div>
+                </div>
+              </article>
+
+              <section style="display:flex;flex-direction:column;gap:10px">
+                <span style="display:flex;align-items:center;gap:8px;font-size:11px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:#8a96a2"><span style="width:18px;height:18px;background:center/contain no-repeat url(https://api.iconify.design/flat-color-icons/idea.svg)"></span>Notes &amp; fun facts · {{ task.short }}</span>
+              <div style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:6px;scrollbar-width:thin">
+              <sc-for list="{{ notesList }}" as="nt" hint-placeholder-count="3">
+                <div style="flex:0 0 min(300px,82%);scroll-snap-align:start;max-height:240px;overflow-y:auto;scrollbar-width:thin;border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;background:{{ nt.bg }}">
+                  <span style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:{{ nt.ink }}"><i class="{{ nt.icon }}" style="font-size:16px"></i>{{ nt.kind }}</span>
+                  <sc-if value="{{ nt.isValue }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;flex-direction:column;gap:8px">
+                      <span style="font-size:14.5px;font-weight:700;line-height:1.3">{{ nt.vTitle }}</span>
+                      <div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:{{ nt.ink }}">What it is</span><p style="font-size:13px;line-height:1.55;margin:0;text-wrap:pretty">{{ nt.what }}</p></div>
+                      <div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:{{ nt.ink }}">When to use it</span><p style="font-size:13px;line-height:1.55;margin:0;text-wrap:pretty">{{ nt.when }}</p></div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ nt.hasText }}" hint-placeholder-val="{{ true }}">
+                    <p style="font-size:13.5px;line-height:1.6;margin:0;text-wrap:pretty">{{ nt.text }}</p>
+                  </sc-if>
+                  <div style="display:flex;flex-wrap:wrap;gap:6px">
+                    <sc-for list="{{ nt.links }}" as="lk" hint-placeholder-count="0">
+                      <a href="{{ lk.url }}" target="_blank" rel="noopener" title="{{ lk.note }}" style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:16px;background:#fff;font-size:12.5px;font-weight:600;color:#0e1a24" style-hover="color:#3a8db1">{{ lk.name }}<i class="ri-external-link-line" style="font-size:12px;color:#8a96a2"></i></a>
+                    </sc-for>
+                  </div>
+                  <sc-if value="{{ nt.hasTitle }}" hint-placeholder-val="{{ false }}"><span style="font-size:13.5px;font-weight:700">{{ nt.ctitle }}</span></sc-if>
+                  <sc-for list="{{ nt.items }}" as="ci" hint-placeholder-count="0">
+                    <div style="display:grid;grid-template-columns:18px 1fr;gap:8px;font-size:13.5px;line-height:1.55"><i class="ri-check-line" style="color:{{ nt.ink }}"></i><span style="text-wrap:pretty">{{ ci }}</span></div>
+                  </sc-for>
+                  <sc-for list="{{ nt.rows }}" as="rw" hint-placeholder-count="0">
+                    <div style="display:grid;grid-template-columns:88px 1fr;gap:10px;padding:8px 0;border-top:1px solid rgba(14,26,36,.07);font-size:13px;line-height:1.5"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500">{{ rw.k }}</span><span>{{ rw.v }}</span></div>
+                  </sc-for>
+                  <sc-if value="{{ nt.hasSrc }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;line-height:1.45;color:#6b7782;border-top:1px solid rgba(14,26,36,.08);padding-top:7px">Source: {{ nt.src }}</span></sc-if>
+                </div>
+              </sc-for>
+              </div>
+              </section>
+              
+              <sc-if value="{{ step.hasRefs }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;flex-direction:column;gap:8px;padding:4px">
+                  <span style="font-size:11px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:#8a96a2">References</span>
+                  <sc-for list="{{ step.refs }}" as="r" hint-placeholder-count="1">
+                    <p style="font-size:12.5px;line-height:1.6;color:#8a96a2;margin:0">{{ r }}</p>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+
+            <aside style="flex:1 1 280px;max-width:380px;min-width:0;display:flex;flex-direction:column;gap:14px;position:sticky;top:84px">
+              <sc-if value="{{ isDC }}" hint-placeholder-val="{{ false }}">
+                <div style="border:1px solid #d9e6ee;border-radius:16px;background:#fff;box-shadow:0 10px 28px rgba(58,141,177,.12);overflow:hidden">
+                  <div style="background:#0e1a24;color:#fff;padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+                      <span style="display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#5aafd4"><span style="width:8px;height:8px;border-radius:50%;background:#3faa77;animation:pulse 1.8s ease-out infinite"></span>Live Data Card</span>
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#b9c4cd">{{ dc.filledLabel }}</span>
+                    </div>
+                    <input value="{{ dc.name }}" onChange="{{ dc.onName }}" placeholder="Name your dataset" style="all:unset;font-family:'Cormorant Garamond',Georgia,serif;font-size:22px;font-weight:600;line-height:1.2;border-bottom:1px dashed rgba(255,255,255,.3);padding-bottom:4px">
+                    <div style="height:4px;border-radius:2px;background:rgba(255,255,255,.14);overflow:hidden"><div style="height:100%;background:linear-gradient(90deg,#5aafd4,#3faa77);transition:width .5s;width:{{ dc.pct }}"></div></div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;padding:6px 8px">
+                    <sc-for list="{{ dc.sections }}" as="sec" hint-placeholder-count="7">
+                      <button onClick="{{ sec.onClick }}" style="all:unset;cursor:pointer;display:grid;grid-template-columns:20px 1fr;gap:10px;padding:10px;border-radius:10px;transition:background .3s;background:{{ sec.bg }}" style-hover="background:#f6f9fb">
+                        <i class="{{ sec.icon }}" style="font-size:16px;margin-top:1px;color:{{ sec.iconColor }}"></i>
+                        <span style="display:flex;flex-direction:column;gap:3px;min-width:0">
+                          <span style="font-size:12.5px;font-weight:700">{{ sec.title }}</span>
+                          <span style="font-size:12.5px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;color:{{ sec.color }};font-style:{{ sec.fontStyle }}">{{ sec.preview }}</span>
+                        </span>
+                      </button>
+                    </sc-for>
+                  </div>
+                  <div style="padding:6px 16px 16px">
+                    <button onClick="{{ openDC }}" style="all:unset;cursor:pointer;width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px;border-radius:22px;background:#e4f2f8;color:#2f7ea3;font-size:13px;font-weight:700" style-hover="background:#d3eaf4"><i class="ri-fullscreen-line"></i>Open full Data Card</button>
+                  </div>
+                </div>
+              </sc-if>
+              <label style="display:flex;flex-direction:column;gap:8px;border:1px solid #e6e8eb;border-radius:14px;padding:16px 18px">
+                <span style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700"><i class="ri-sticky-note-line" style="font-size:16px;color:#ec9a3e"></i>My notes for this step</span>
+                <textarea value="{{ myNote }}" onChange="{{ onMyNote }}" rows="4" placeholder="Reminders, links, ideas…" style="width:100%;resize:vertical;font-family:'DM Sans',system-ui,sans-serif;font-size:13.5px;line-height:1.6;color:#0e1a24;background:#fffaf2;border:1px solid #f3e3c8;border-radius:9px;padding:10px 12px"></textarea>
+              </label>
+            </aside>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isReview }}" hint-placeholder-val="{{ false }}">
+        <div style="max-width:960px;margin:0 auto;padding:32px clamp(16px,3vw,40px) 80px;display:flex;flex-direction:column;gap:18px">
+          <section style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+            <span style="width:88px;height:88px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#e4f2f8"><img src="https://api.iconify.design/flat-color-icons/inspection.svg" alt="" style="width:52px;height:52px"></span>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <span style="font-size:11px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:#3a8db1">Refamiliarize yourself</span>
+              <h2 style="font-family:'Cormorant Garamond',Georgia,serif;font-size:clamp(30px,3.4vw,42px);font-weight:600;line-height:1.1;margin:0">Full project plan</h2>
+            </div>
+            <button onClick="{{ openDC }}" style="all:unset;cursor:pointer;margin-left:auto;display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border-radius:24px;background:#0e1a24;color:#fff;font-size:13px;font-weight:600" style-hover="background:#3a8db1"><i class="ri-database-2-line"></i>Open Data Card</button>
+          </section>
+          <sc-for list="{{ review }}" as="rv" hint-placeholder-count="6">
+            <section style="border:1px solid #e6e8eb;border-radius:16px;padding:clamp(20px,3vw,32px);display:flex;flex-direction:column;gap:14px">
+              <button onClick="{{ rv.onClick }}" style="all:unset;cursor:pointer;display:flex;align-items:center;gap:14px" style-hover="color:#3a8db1">
+                <span style="width:30px;height:30px;flex:0 0 auto;background:center/contain no-repeat;background-image:url({{ rv.icon }})"></span>
+                <span style="font-family:'Cormorant Garamond',Georgia,serif;font-size:24px;font-weight:600;line-height:1.2">{{ rv.num }}. {{ rv.title }}</span>
+                <i class="ri-edit-line" style="font-size:15px;color:#8a96a2"></i>
+              </button>
+              <sc-if value="{{ rv.empty }}" hint-placeholder-val="{{ false }}"><p style="font-size:14px;color:#8a96a2;margin:0">Nothing written yet.</p></sc-if>
+              <sc-for list="{{ rv.entries }}" as="e" hint-placeholder-count="2">
+                <div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid #eef0f2;padding-top:12px">
+                  <span style="font-size:12px;font-weight:600;letter-spacing:.06em;color:#4a5762">{{ e.label }}</span>
+                  <p style="font-size:14.5px;line-height:1.7;margin:0;white-space:pre-wrap;text-wrap:pretty">{{ e.value }}</p>
+                </div>
+              </sc-for>
+            </section>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+<sc-if value="{{ dcOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeDC }}" style="position:fixed;inset:0;z-index:50;background:rgba(14,26,36,.5);backdrop-filter:blur(4px);display:flex;align-items:flex-start;justify-content:center;padding:clamp(12px,4vh,48px) 16px;overflow:auto;transition:opacity .3s;opacity:{{ dcOpacity }}">
+      <div onClick="{{ stop }}" style="width:100%;max-width:880px;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.3);transition:transform .35s cubic-bezier(.2,.8,.2,1);transform:{{ dcTransform }}">
+        <div style="background:#0e1a24;color:#fff;padding:clamp(24px,4vw,40px);display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
+            <span style="font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#5aafd4">Data Card · built from Step 2</span>
+            <div style="display:flex;gap:8px">
+              <button onClick="{{ copyDC }}" style="all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:20px;background:rgba(255,255,255,.1);font-size:12.5px;font-weight:600" style-hover="background:rgba(255,255,255,.18)"><i class="ri-markdown-line"></i>{{ copyLabel }}</button>
+              <button onClick="{{ closeDC }}" style="all:unset;cursor:pointer;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.1)" style-hover="background:rgba(255,255,255,.18)"><i class="ri-close-line" style="font-size:18px"></i></button>
+            </div>
+          </div>
+          <h2 style="font-family:'Cormorant Garamond',Georgia,serif;font-size:clamp(30px,4vw,44px);font-weight:600;line-height:1.05;margin:0">{{ dc.title }}</h2>
+          <p style="font-size:14.5px;line-height:1.65;color:#c9d3db;margin:0;max-width:680px;white-space:pre-wrap">{{ dc.summary }}</p>
+          <div style="display:flex;align-items:center;gap:12px"><div style="flex:1;max-width:260px;height:4px;border-radius:2px;background:rgba(255,255,255,.14);overflow:hidden"><div style="height:100%;background:linear-gradient(90deg,#5aafd4,#3faa77);width:{{ dc.pct }}"></div></div><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#b9c4cd">{{ dc.filledLabel }}</span></div>
+        </div>
+        <div style="padding:clamp(20px,3vw,32px);display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px">
+          <sc-for list="{{ dc.sections }}" as="sec" hint-placeholder-count="7">
+            <section style="border:1px solid #e6e8eb;border-radius:14px;padding:18px 20px;display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;align-items:center;gap:10px"><i class="{{ sec.icon }}" style="font-size:18px;color:{{ sec.iconColor }}"></i><span style="font-size:15px;font-weight:700">{{ sec.title }}</span></div>
+              <sc-for list="{{ sec.prompts }}" as="q" hint-placeholder-count="2"><span style="font-size:12px;line-height:1.5;color:#8a96a2">{{ q }}</span></sc-for>
+              <p style="font-size:14px;line-height:1.65;margin:0;white-space:pre-wrap;text-wrap:pretty;color:{{ sec.color }};font-style:{{ sec.fontStyle }}">{{ sec.full }}</p>
+              <button onClick="{{ sec.onEdit }}" style="all:unset;cursor:pointer;align-self:flex-start;display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#3a8db1"><i class="ri-edit-line"></i>Edit</button>
+            </section>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;examplesOpen&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;showWordCounts&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+const KEY = 'dm-llm-project-plan-v1';
+const R = (label, target) => ({ label: label || 'Your response', target });
+const IC = n => 'https://api.iconify.design/flat-color-icons/' + n + '.svg';
+const TIP = (text) => ({ kind: 'Tip', text });
+const FACT = (text) => ({ kind: 'Did you know?', text });
+const LINKS = (kind, links) => ({ kind, links });
+
+const STEPS = [
+ {
+  "title": "Develop your problem statement",
+  "short": "Problem statement",
+  "icon": "https://api.iconify.design/flat-color-icons/idea.svg",
+  "minutes": "30 minutes",
+  "intro": "A problem statement is the first step to identifying a social research issue which machine learning could address. It describes the issue or gap you are looking to address and explains why the research is needed.",
+  "tasks": [
+   {
+    "text": "Reflect on the values you have identified as important to you and the sectors you recognized that may benefit from language models.",
+    "fields": [
+     {
+      "label": "My values"
+     },
+     {
+      "label": "Sectors that may benefit"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Ubuntu value",
+      "title": "Interconnectedness (Ubuntu)",
+      "what": "The ethical core of Ubuntu (\"I am because we are\"), which views individuals as fundamentally linked through relationships, shared experiences, and community bonds.",
+      "when": "When designing initiatives or software that rely on collaborative engagement, shared device usage, peer-to-peer support, and strengthening social or family ties."
+     },
+     {
+      "kind": "Ubuntu value",
+      "title": "Communal Character (Ubuntu)",
+      "what": "An approach that integrates technology with existing local community structures, relying on consultations with elders and religious leaders, and using local fables and proverbs to reinforce shared heritage.",
+      "when": "When deploying technology in distinct local or underserved communities where cultural alignment and community leadership are essential for trust and long-term success."
+     },
+     {
+      "kind": "Ubuntu value",
+      "title": "Moral Motivation (Ubuntu)",
+      "what": "The commitment to act out of a sense of duty toward collective well-being and social harmony rather than purely self-interested or transactional motives.",
+      "when": "When defining and evaluating project success based on social outcomes—such as strengthened community relationships—rather than solely on individual test scores or metrics."
+     },
+     {
+      "kind": "Tip",
+      "text": "List 3–5 values (for example inclusion, privacy, cultural preservation) and 2–3 sectors such as education, health or agriculture."
+     },
+     {
+      "kind": "Tip",
+      "text": "Your values framework from earlier in the course is the starting point. Copy it in rather than rewriting it."
+     }
+    ]
+   },
+   {
+    "text": "Generate at least two potential problems in your local community that you are interested in solving through language models.",
+    "fields": [
+     {
+      "label": "Problem idea 1"
+     },
+     {
+      "label": "Problem idea 2"
+     }
+    ],
+    "example": [
+     "For inspiration: RobotsMali, an integrated AI and literacy initiative that empowers African language speakers to develop and use AI tools that preserve linguistic heritage, improve literacy, and reflect local cultural realities. Google DeepMind’s LearnLM, which supports learners with chat experiences based on learning science principles."
+    ],
+    "exampleName": "inspiration",
+    "notes": [
+     {
+      "kind": "Tip",
+      "text": "Look for problems where language is the barrier: information that exists, but not in local languages or accessible formats."
+     },
+     {
+      "kind": "Did you know?",
+      "text": "RobotsMali builds AI tools and books in Bambara and other Malian languages to support literacy."
+     }
+    ]
+   },
+   {
+    "text": "Evaluate each of your ideas against your values framework to see which closely aligns with your personal and community values.",
+    "fields": [
+     {
+      "label": "Evaluation"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Ubuntu value",
+      "title": "Moral Motivation (Ubuntu)",
+      "what": "The commitment to act out of a sense of duty toward collective well-being and social harmony rather than purely self-interested or transactional motives.",
+      "when": "When defining and evaluating project success based on social outcomes—such as strengthened community relationships—rather than solely on individual test scores or metrics."
+     },
+     {
+      "kind": "Tip",
+      "text": "Score each idea 1–5 against each value in a small table. Check feasibility too — the highest score isn’t automatically the one to pick."
+     }
+    ]
+   },
+   {
+    "text": "Based on your evaluation, choose an idea to take forward.",
+    "fields": [
+     {
+      "label": "Chosen idea"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Tip",
+      "text": "Ask: can I realistically get data for this? Step 2 builds the dataset, so a problem with no possible data will stall."
+     }
+    ]
+   },
+   {
+    "text": "Develop a problem statement for the problem you wish to solve in 150–200 words.",
+    "fields": [
+     {
+      "label": "Problem statement",
+      "target": [
+       150,
+       200
+      ]
+     }
+    ],
+    "exampleName": "AlphaFold example",
+    "example": [
+     "Determining the three-dimensional (3D) structure of proteins from their amino acid sequence has been a long-standing challenge in biology. While experimental techniques like X-ray crystallography and nuclear magnetic resonance (NMR) can determine protein structures, they are often time-consuming, expensive, and not applicable to all proteins. This limitation in structural determination hinders our understanding of protein function, biological processes, and the development of new drugs.",
+     "The proposed research project aims to develop a computational method that can accurately and rapidly predict the 3D structure of proteins directly from their amino acid sequences. This will be achieved by creating an artificial intelligence (AI) system trained on a large database of known protein sequences and structures. The system will learn the complex relationships between amino acid sequences and their corresponding 3D conformations.",
+     "The successful development of such a method will dramatically accelerate biological research, enable a deeper understanding of disease mechanisms, and facilitate research into novel therapeutic interventions."
+    ],
+    "notes": [
+     {
+      "kind": "A good problem statement should",
+      "items": [
+       "Clearly define the core issue that the research aims to address.",
+       "Provide context and background.",
+       "Be specific and set the boundaries and scope of the work.",
+       "Be feasible and something that can be realistically addressed.",
+       "Justify the need for the research."
+      ]
+     },
+     {
+      "kind": "Sentence starters",
+      "items": [
+       "The problem of [insert problem here] has been a long-standing issue…",
+       "The current solutions involve [how people currently try to solve the problem] and pose a number of challenges including…",
+       "This research aims to [how you will solve the problem]…",
+       "The successful development of this approach will… [the impact for the field and end users]"
+      ]
+     },
+     {
+      "kind": "Did you know?",
+      "text": "The AlphaFold Protein Structure Database, built with EMBL-EBI, holds predicted structures for over 200 million proteins."
+     },
+     {
+      "kind": "Explore",
+      "links": [
+       {
+        "name": "AlphaFold Protein Structure Database",
+        "note": "alphafold.ebi.ac.uk",
+        "url": "https://alphafold.ebi.ac.uk/"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "title": "Build a dataset ethically with a Data Card",
+  "short": "Data Card",
+  "icon": "https://api.iconify.design/flat-color-icons/database.svg",
+  "minutes": "60 minutes",
+  "intro": "Sketch out a plan for building an ethical dataset. Use the Data Cards process to document your decisions in a transparent and accountable way. This is a draft — reflect and revise as you go.",
+  "refs": [
+   "[1] Pushkarna, M., Zaldivar, A. and Kjartansson, O. 2022. Data Cards: Purposeful and Transparent Dataset Documentation for Responsible AI. In FAccT ’22: 2022 ACM Conference on Fairness Accountability and Transparency. Seoul, Republic of Korea."
+  ],
+  "tasks": [
+   {
+    "text": "Return to the community issue you identified. Re-read the problem statement that summarized the issue and how you plan to address it through an LLM application.",
+    "link": 0,
+    "linkLabel": "Open problem statement",
+    "fields": [],
+    "notes": [
+     {
+      "kind": "Tip",
+      "text": "Note the users, the task and the language(s) from your problem statement. Every Data Card answer should connect back to them."
+     }
+    ]
+   },
+   {
+    "text": "Read Sections 1–3 of the Data Cards Playbook (“Explore,” “Define,” and “Create”).",
+    "fields": [],
+    "notes": [
+     {
+      "kind": "Read",
+      "links": [
+       {
+        "name": "Data Cards Playbook",
+        "note": "sites.research.google/datacardsplaybook",
+        "url": "https://sites.research.google/datacardsplaybook/"
+       }
+      ]
+     },
+     {
+      "kind": "Did you know?",
+      "text": "Data Cards were proposed by Google researchers Pushkarna, Zaldivar and Kjartansson at FAccT 2022 in Seoul [1]."
+     }
+    ]
+   },
+   {
+    "text": "Input vs. Output",
+    "prompts": [
+     "What are users inputting (for example, audio, text, images)?",
+     "What are the outputs or labels your model will predict or generate?"
+    ],
+    "fields": [
+     {
+      "label": "Your response"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "From your sources",
+      "text": "Document your sub-word tokenization choices. Standard tokenizers fragment low-resource African languages into many small pieces, which degrades model performance.",
+      "src": "Inventory: TASK-TECH-04, TASK-ETH-03 · Moletsane (2026); Setia & Monga (2024)"
+     },
+     {
+      "kind": "Tip",
+      "text": "Be concrete: “voice notes in Bambara, 5–30 seconds” is more useful than “audio”."
+     }
+    ]
+   },
+   {
+    "text": "Classification problem",
+    "prompts": [
+     "What is the classification task, if any?",
+     "What categories or classes are you working with, and why?"
+    ],
+    "fields": [
+     {
+      "label": "Your response"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Tip",
+      "text": "If your task is generative, say so and explain. You may still classify something, for example safe vs. unsafe responses."
+     }
+    ]
+   },
+   {
+    "text": "Labeling",
+    "prompts": [
+     "Where do your labels come from — domain experts, community members, crowd workers, AI-generated sources?",
+     "How will you check for consistency and accuracy?"
+    ],
+    "fields": [
+     {
+      "label": "Your response"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "From your sources",
+      "text": "Annotators disagree, and that disagreement is information. Account for diverse, conflicting viewpoints rather than forcing a single consensus label — and expect some labels to be noisy.",
+      "src": "DPO survey: Data strategy — heterogeneity and noise robustness"
+     },
+     {
+      "kind": "Tip",
+      "text": "Have two or more people label the same sample and compare. Agreement scores such as Cohen’s kappa show how consistent labels are."
+     },
+     {
+      "kind": "Guidance",
+      "links": [
+       {
+        "name": "Data Cards Playbook",
+        "note": "sites.research.google/datacardsplaybook",
+        "url": "https://sites.research.google/datacardsplaybook/"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "text": "Data creation",
+    "prompts": [
+     "How will you collect your data?",
+     "Will it come from direct sources (like interviews or recordings), or will you synthesize data in low-resource settings (e.g., for under-resourced languages)?"
+    ],
+    "fields": [
+     {
+      "label": "Your response"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Governance proposal",
+      "title": "\"Fair Tech\" Ecosystem (Inspired by Fair Trade)",
+      "what": "An ethical framework designed to counter \"data coloniality\" (the uncompensated extraction of local data) by moving from a top-down designer-user dynamic toward mutual co-design, co-creation, and fair compensation.",
+      "when": "When building AI models using underrepresented languages, stories, or cultural data, ensuring local communities are treated as co-designers rather than raw material."
+     },
+     {
+      "kind": "From your sources",
+      "text": "Plan to expand the tokenizer vocabulary for your language so text isn’t split into fragments.",
+      "src": "Inventory: TASK-AF-01 / TASK-ETH-03"
+     },
+     {
+      "kind": "Where to find datasets",
+      "links": [
+       {
+        "name": "World Bank Open Data",
+        "note": "Development indicators by country",
+        "url": "https://data.worldbank.org/"
+       },
+       {
+        "name": "Awesome Public Datasets",
+        "note": "Curated list on GitHub",
+        "url": "https://github.com/awesomedata/awesome-public-datasets"
+       },
+       {
+        "name": "Hugging Face Datasets",
+        "note": "Text, audio and multilingual sets",
+        "url": "https://huggingface.co/datasets"
+       },
+       {
+        "name": "Google Dataset Search",
+        "note": "Search engine for datasets",
+        "url": "https://datasetsearch.research.google.com/"
+       },
+       {
+        "name": "Kaggle Datasets",
+        "note": "Community-shared datasets",
+        "url": "https://www.kaggle.com/datasets"
+       }
+      ]
+     },
+     {
+      "kind": "Tip",
+      "text": "For under-resourced languages, recordings and interviews with community members are often the only source. Plan consent before you collect."
+     }
+    ]
+   },
+   {
+    "text": "Web collection ethics",
+    "prompts": [
+     "Do you plan to source data from the web?",
+     "If yes, which sites or platforms?",
+     "What tools will you use — AI tools, human workers, or both?",
+     "Have you addressed issues of consent, copyright, and privacy?"
+    ],
+    "fields": [
+     {
+      "label": "Your response"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Governance proposal",
+      "title": "Data Trusts and Cooperatives (Data Stewardship)",
+      "what": "A collective governance model where a community’s digital data is managed on its behalf, giving members explicit control over how their knowledge is repurposed and ensuring fair benefit-sharing.",
+      "when": "When scraping or collecting community-generated content (such as forum posts, messaging groups, or blogs) to prevent corporate claims that publicly accessible data is free to exploit."
+     },
+     {
+      "kind": "From your sources",
+      "text": "“Data colonialism” describes the continuous extraction of behavioural and demographic data from Global South populations by Global North technology companies. Ask whether your collection repeats that pattern.",
+      "src": "Couldry & Mejias (2019), via Chauhan (2025)"
+     },
+     {
+      "kind": "Licences to check",
+      "rows": [
+       {
+        "k": "CC0",
+        "v": "Public domain. No conditions."
+       },
+       {
+        "k": "CC BY",
+        "v": "Requires attribution only."
+       },
+       {
+        "k": "CC BY-SA",
+        "v": "Requires attribution and share-alike (derivative works must use the same license)."
+       },
+       {
+        "k": "CC BY-NC",
+        "v": "Requires attribution; non-commercial use only."
+       }
+      ]
+     },
+     {
+      "kind": "Tip",
+      "text": "Check each site’s terms of service and robots.txt before scraping, and record the licence of every source."
+     }
+    ]
+   },
+   {
+    "text": "Bias and representation",
+    "prompts": [
+     "Who might be left out of your dataset?",
+     "How will you ensure that the dataset reflects the diversity of the community and includes underrepresented voices?"
+    ],
+    "fields": [
+     {
+      "label": "Your response"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "From your sources",
+      "title": "Your Data Card should record",
+      "items": [
+       "Dataset lineage (where each part came from)",
+       "Sampling biases",
+       "Demographic groups that are missing",
+       "Intended operational boundaries — what it should not be used for"
+      ],
+      "src": "Inventory: TASK-ETH-02 · Google DeepMind course"
+     },
+     {
+      "kind": "Tip",
+      "text": "Check who is missing by region, gender, age, dialect and literacy level."
+     },
+     {
+      "kind": "Guidance",
+      "links": [
+       {
+        "name": "Data Cards Playbook",
+        "note": "sites.research.google/datacardsplaybook",
+        "url": "https://sites.research.google/datacardsplaybook/"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "text": "Values and community alignment",
+    "prompts": [
+     "How does your dataset design reflect the values you identified in 01 Build Your Own Small Language Model?",
+     "How will your community benefit from this dataset, and how will you ensure accountability to them?"
+    ],
+    "fields": [
+     {
+      "label": "Your response"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Governance proposal",
+      "title": "\"Fair Tech\" Ecosystem (Inspired by Fair Trade)",
+      "what": "An ethical framework designed to counter \"data coloniality\" (the uncompensated extraction of local data) by moving from a top-down designer-user dynamic toward mutual co-design, co-creation, and fair compensation.",
+      "when": "When building AI models using underrepresented languages, stories, or cultural data, ensuring local communities are treated as co-designers rather than raw material."
+     },
+     {
+      "kind": "Governance proposal",
+      "title": "Data Trusts and Cooperatives (Data Stewardship)",
+      "what": "A collective governance model where a community’s digital data is managed on its behalf, giving members explicit control over how their knowledge is repurposed and ensuring fair benefit-sharing.",
+      "when": "When scraping or collecting community-generated content (such as forum posts, messaging groups, or blogs) to prevent corporate claims that publicly accessible data is free to exploit."
+     },
+     {
+      "kind": "Ubuntu value",
+      "title": "Interconnectedness (Ubuntu)",
+      "what": "The ethical core of Ubuntu (\"I am because we are\"), which views individuals as fundamentally linked through relationships, shared experiences, and community bonds.",
+      "when": "When designing initiatives or software that rely on collaborative engagement, shared device usage, peer-to-peer support, and strengthening social or family ties."
+     },
+     {
+      "kind": "Tip",
+      "text": "Community data governance frameworks can help here, such as the CARE Principles for Indigenous Data Governance."
+     },
+     {
+      "kind": "Read",
+      "links": [
+       {
+        "name": "CARE Principles",
+        "note": "Global Indigenous Data Alliance",
+        "url": "https://www.gida-global.org/care"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "title": "Create an impact statement card",
+  "short": "Impact statement",
+  "icon": "https://api.iconify.design/flat-color-icons/bullish.svg",
+  "minutes": "",
+  "intro": "An impact statement explains who your LLM project will affect, what will change for them, and how you will know. It builds on the “successful development of this approach will…” line in your problem statement.",
+  "notice": "The course instructions for this step weren’t pasted in, so these tasks are a suggested structure. Check them against the course page.",
+  "tasks": [
+   {
+    "text": "Re-read your problem statement and note the change you want to see in your community.",
+    "link": 0,
+    "linkLabel": "Open problem statement",
+    "fields": [
+     {
+      "label": "The change I want to see"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Tip",
+      "text": "Start from the last sentence of your problem statement: “The successful development of this approach will…”. The impact statement expands that sentence."
+     }
+    ]
+   },
+   {
+    "text": "Identify who will be affected: direct users, and people affected indirectly.",
+    "fields": [
+     {
+      "label": "Direct users"
+     },
+     {
+      "label": "People affected indirectly"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Tip",
+      "text": "Indirect groups are easy to miss: family members who share a phone, teachers whose role changes, people whose data is used but who never use the tool."
+     }
+    ]
+   },
+   {
+    "text": "Describe the intended positive impacts, in the short term and the long term.",
+    "fields": [
+     {
+      "label": "Short-term impacts"
+     },
+     {
+      "label": "Long-term impacts"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Ubuntu value",
+      "title": "Moral Motivation (Ubuntu)",
+      "what": "The commitment to act out of a sense of duty toward collective well-being and social harmony rather than purely self-interested or transactional motives.",
+      "when": "When defining and evaluating project success based on social outcomes—such as strengthened community relationships—rather than solely on individual test scores or metrics."
+     },
+     {
+      "kind": "Tip",
+      "text": "Be specific and concrete: “farmers get planting advice in Hausa by voice” is stronger than “improves access to information”."
+     }
+    ]
+   },
+   {
+    "text": "Describe possible negative or unintended impacts, and who would bear them.",
+    "fields": [
+     {
+      "label": "Negative or unintended impacts"
+     },
+     {
+      "label": "Who bears them"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "From your sources",
+      "text": "Assess collective, communal impacts alongside individual ones such as privacy. Relational ethics (Ubuntu, Afro-feminism) looks at harm to relationships and communities, not only to individuals.",
+      "src": "Birhane (2021); Mhlambi (2020) · TASK-ETH-01"
+     },
+     {
+      "kind": "From your sources",
+      "text": "Technical fixes alone cannot resolve structural social inequalities. Say which social conditions your project depends on.",
+      "src": "Data & Society 2022 Annual Report"
+     },
+     {
+      "kind": "Tip",
+      "text": "Link each negative impact to a mitigation you will plan later in the engagement, governance or sustainability steps."
+     }
+    ]
+   },
+   {
+    "text": "Decide how you will know the impact happened: what you will measure, and who will judge it.",
+    "fields": [
+     {
+      "label": "Indicators and who judges them"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Tip",
+      "text": "Mix measures: model metrics (accuracy, error rates by group) and social outcomes (use, trust, time saved, community relationships)."
+     },
+     {
+      "kind": "Tip",
+      "text": "Ask the community what success looks like to them, and include at least one of their measures."
+     }
+    ]
+   },
+   {
+    "text": "Write your impact statement card, bringing the answers above together.",
+    "fields": [
+     {
+      "label": "Impact statement"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Structure",
+      "items": [
+       "Who the project is for, and where",
+       "What changes for them (short and long term)",
+       "Risks, and who could be harmed",
+       "How impact will be measured, and by whom"
+      ]
+     },
+     {
+      "kind": "Sentence starters",
+      "items": [
+       "This project will support [who] in [where] by [what the LLM does]…",
+       "In the short term, this will… In the long term, it will…",
+       "The main risks are [risk], which could affect [who]. We will reduce this by…",
+       "We will know it has worked when [indicator], as judged by [who]."
+      ]
+     },
+     {
+      "kind": "Tip",
+      "text": "Keep it short enough to fit on a card, one paragraph or a few bullet points, so it can go at the top of your README and Data Card."
+     }
+    ],
+    "exampleName": "illustrative example (not from the course)",
+    "example": [
+     "This project will support rural primary school teachers in northern Nigeria by generating lesson materials in Hausa. In the short term, teachers will spend less time preparing lessons and pupils will learn in the language they speak at home. In the long term, it will help keep Hausa present in formal education. The main risks are mistranslated idioms and reduced trust in teachers’ own expertise; we will reduce these through co-design workshops where teachers review outputs. We will know it has worked when teachers report time saved and keep using the tool after one term, as judged by the local teacher association."
+    ]
+   }
+  ]
+ },
+ {
+  "title": "Design a mini-engagement plan",
+  "short": "Stakeholder analysis",
+  "icon": "https://api.iconify.design/flat-color-icons/conference-call.svg",
+  "minutes": "45 minutes",
+  "intro": "Move from stakeholder analysis to action: how will you engage these groups meaningfully? Design a mini-engagement plan for two stakeholder groups, drawing on tools like the Action Catalogue.",
+  "refs": [
+   "[1] Kutoma Wakunuma and Tilimbe Jiya. 2019. Stakeholder Engagement and Responsible Research & Innovation in promoting Sustainable Development and Empowerment through ICT. European Journal of Sustainable Development, 8, 3, 275–275. https://doi.org/10.14207/ejsd.2019.v8n3p275.",
+   "[2] Gendered Chatbots in Nigeria: Critical Perspectives. In Responsible AI in Africa: Challenges and Opportunities. Damian Okaibedi Eke, Kutoma Wakunuma, and Simisola Akintoye (Eds.). Springer International Publishing, 119–139. https://doi.org/10.1007/978-3-031-08215-3_6",
+   "[3] The Engage2020 Action Catalogue. 2015. Retrieved from https://actioncatalogue.eu/."
+  ],
+  "tasks": [
+   {
+    "text": "Using your stakeholder map, select two stakeholder groups (e.g., women, local educators, business owners).",
+    "fields": [
+     {
+      "label": "Group 1"
+     },
+     {
+      "label": "Group 2"
+     }
+    ],
+    "example": [
+     "For this chatbot project, I will focus on rural teacher associations and women’s community groups."
+    ],
+    "notes": [
+     {
+      "kind": "Ubuntu value",
+      "title": "Communal Character (Ubuntu)",
+      "what": "An approach that integrates technology with existing local community structures, relying on consultations with elders and religious leaders, and using local fables and proverbs to reinforce shared heritage.",
+      "when": "When deploying technology in distinct local or underserved communities where cultural alignment and community leadership are essential for trust and long-term success."
+     },
+     {
+      "kind": "From your sources",
+      "text": "Map power before you pick: include frontline service workers and marginalised communities, not only managers and funders.",
+      "src": "Wakunuma & Jiya; Birhane et al. (2021) · TASK-AF-03"
+     },
+     {
+      "kind": "Tip",
+      "text": "Pick one group with influence over the project and one that is most affected but least heard."
+     }
+    ]
+   },
+   {
+    "text": "In 100 words, describe what matters most to them regarding your project (e.g., cultural preservation, data privacy, economic inclusion).",
+    "fields": [
+     {
+      "label": "What matters most",
+      "target": [
+       100,
+       100
+      ]
+     }
+    ],
+    "example": [
+     "Rural teacher associations care most about educational equity and ensuring that local languages are accurately represented so that students learn effectively without feeling alienated; they also value tools that reduce workload and enhance their teaching capacity. Women’s community groups, on the other hand, prioritize cultural preservation and safe access to information, particularly in contexts where they are excluded from formal education or public decision-making. Both groups want a system that is inclusive, trustworthy, and respectful of their lived realities."
+    ],
+    "notes": [
+     {
+      "kind": "Tip",
+      "text": "About 100 words: name each group and their top two priorities."
+     }
+    ]
+   },
+   {
+    "text": "Identify potential harms (e.g., exclusion, misrepresentation) and potential benefits (e.g., increased access, empowerment) that your stakeholder groups might be concerned or excited about.",
+    "fields": [
+     {
+      "label": "Potential harms"
+     },
+     {
+      "label": "Potential benefits"
+     }
+    ],
+    "example": [
+     "Potential harms include misinterpretation of idioms, erosion of teachers’ expertise, exclusion of women’s voices, and reinforcing harmful gender stereotypes. Potential benefits include better teaching resources, wider access to knowledge in local languages, women’s empowerment through information access, and more inclusive community participation in education."
+    ],
+    "notes": [
+     {
+      "kind": "From your sources",
+      "text": "If your tool automates service work, assess job displacement risk and name a reskilling route for affected workers.",
+      "src": "Wakunuma & Jiya · TASK-STK-02"
+     },
+     {
+      "kind": "Tip",
+      "text": "For each harm, note who is affected and how likely it is."
+     }
+    ]
+   },
+   {
+    "text": "Visit the Action Catalogue and browse methods like “Participatory Design”, “User Committees”, “Deliberative Workshops”, or “Distributed Dialogue” that align with your groups and context.",
+    "fields": [
+     {
+      "label": "Methods shortlisted"
+     }
+    ],
+    "example": [
+     "Based on the Action Catalogue, participatory design workshops with teachers and distributed dialogues with women’s groups would be strong methods to ensure the chatbot is co-created, contextually relevant, and reflective of community priorities."
+    ],
+    "notes": [
+     {
+      "kind": "Browse methods",
+      "links": [
+       {
+        "name": "Engage2020 Action Catalogue",
+        "note": "Filter engagement methods by project need",
+        "url": "https://actioncatalogue.eu/"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "text": "For each group, select one method and write 500 words to explain why it fits.",
+    "fields": [
+     {
+      "label": "Group 1 — method and why it fits",
+      "target": [
+       500,
+       500
+      ]
+     },
+     {
+      "label": "Group 2 — method and why it fits",
+      "target": [
+       500,
+       500
+      ]
+     }
+    ],
+    "example": [
+     "Stakeholder: Rural teacher associations.",
+     "Interest/value: Supporting local languages and educational equity. The stakeholder will likely want tools that strengthen rather than replace their ability to deliver quality education.",
+     "Potential harms: AI may misinterpret local idioms or diminish teachers’ roles.",
+     "Potential benefits: Teachers obtain tailored AI tools to supplement lesson planning, reduce administrative burdens, and expand access to culturally relevant teaching materials.",
+     "Engagement method: Participatory Design (using co-design workshops where teachers contribute examples and review model outputs).",
+     "Plan use: Their participation ensures the model respects linguistic nuance and helps build trust and relevance in local communities."
+    ],
+    "exampleName": "educational chatbot example",
+    "notes": [
+     {
+      "kind": "Ubuntu value",
+      "title": "Communal Character (Ubuntu)",
+      "what": "An approach that integrates technology with existing local community structures, relying on consultations with elders and religious leaders, and using local fables and proverbs to reinforce shared heritage.",
+      "when": "When deploying technology in distinct local or underserved communities where cultural alignment and community leadership are essential for trust and long-term success."
+     },
+     {
+      "kind": "Ubuntu value",
+      "title": "Interconnectedness (Ubuntu)",
+      "what": "The ethical core of Ubuntu (\"I am because we are\"), which views individuals as fundamentally linked through relationships, shared experiences, and community bonds.",
+      "when": "When designing initiatives or software that rely on collaborative engagement, shared device usage, peer-to-peer support, and strengthening social or family ties."
+     },
+     {
+      "kind": "From your sources",
+      "text": "Civil society groups such as SFLC.in (India) and Paradigm Initiative (Nigeria) audit and challenge high-risk deployments. Consider inviting a similar local group to review your plan.",
+      "src": "Chauhan (2025) · TASK-STK-03"
+     },
+     {
+      "kind": "Tip",
+      "text": "Explain fit in terms of the group’s time, language, literacy and trust."
+     },
+     {
+      "kind": "Tip",
+      "text": "Plan for access: meeting times that suit carers and workers, local-language facilitation, and paying people for their time."
+     }
+    ]
+   },
+   {
+    "text": "In 100 words, describe how the chosen methods might meaningfully influence your dataset and model design (e.g., adjust data sources, improve consent, refine outputs).",
+    "fields": [
+     {
+      "label": "Influence on dataset and model",
+      "target": [
+       100,
+       100
+      ]
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Tip",
+      "text": "Tell participants what changed because of their input. It builds trust for the next round."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "title": "Design a governance blueprint for your LLM",
+  "short": "Governance blueprint",
+  "icon": "https://api.iconify.design/flat-color-icons/rules.svg",
+  "minutes": "60 minutes",
+  "intro": "Design a governance blueprint for your LLM project: identify the benefits and risks it could bring to your community, propose governance actions for each, and bring them together in a concise governance brief.",
+  "tasks": [
+   {
+    "text": "List at least two potential benefits and two potential risks of your LLM in your community. For each, briefly note who benefits and who bears costs.",
+    "fields": [
+     {
+      "label": "Benefit 1"
+     },
+     {
+      "label": "Benefit 2"
+     },
+     {
+      "label": "Risk 1"
+     },
+     {
+      "label": "Risk 2"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "From your sources",
+      "text": "Real cases to learn from: Aadhaar biometric failures in India denied people food rations; Kenya’s Huduma Namba launched without data protection law; predictive policing in Brazil over-targeted Afro-Brazilian neighbourhoods.",
+      "src": "Chauhan (2025); Drèze (2017); Privacy International (2020); Monahan (2019)"
+     },
+     {
+      "kind": "From your sources",
+      "text": "“Algorithmic imprint”: harms from an algorithm can persist long after the system is switched off. Include at least one long-term risk.",
+      "src": "Data & Society at ACM FAccT 2022"
+     },
+     {
+      "kind": "Tip",
+      "text": "For each item write two parts: who benefits, and who bears the cost."
+     }
+    ]
+   },
+   {
+    "text": "For each benefit and risk, propose one governance action that could mitigate harms.",
+    "fields": [
+     {
+      "label": "Governance actions"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Governance proposal",
+      "title": "\"Fair Tech\" Ecosystem (Inspired by Fair Trade)",
+      "what": "An ethical framework designed to counter \"data coloniality\" (the uncompensated extraction of local data) by moving from a top-down designer-user dynamic toward mutual co-design, co-creation, and fair compensation.",
+      "when": "When building AI models using underrepresented languages, stories, or cultural data, ensuring local communities are treated as co-designers rather than raw material."
+     },
+     {
+      "kind": "Governance proposal",
+      "title": "Data Trusts and Cooperatives (Data Stewardship)",
+      "what": "A collective governance model where a community’s digital data is managed on its behalf, giving members explicit control over how their knowledge is repurposed and ensuring fair benefit-sharing.",
+      "when": "When scraping or collecting community-generated content (such as forum posts, messaging groups, or blogs) to prevent corporate claims that publicly accessible data is free to exploit."
+     },
+     {
+      "kind": "From your sources",
+      "title": "Frameworks to cite",
+      "items": [
+       "UNESCO Recommendation on the Ethics of AI (2021)",
+       "UN Guiding Principles on Business and Human Rights (2011)",
+       "African Union Digital Transformation Strategy (2020–2030)",
+       "India’s Digital Personal Data Protection Act (2023)"
+      ],
+      "src": "Chauhan (2025) · TASK-POL-01 to 04"
+     },
+     {
+      "kind": "From your sources",
+      "text": "Burden-of-proof ideas: independent algorithmic audits before deployment in high-stakes domains, and human-in-the-loop review for automated decisions.",
+      "src": "TASK-POL-05 / TASK-GS-03 · Rahwan et al. (2019)"
+     },
+     {
+      "kind": "Governance approaches for inspiration",
+      "items": [
+       "Enforcing existing laws (e.g., privacy, consumer protection).",
+       "Creating bright-line rules (e.g., banning harmful practices).",
+       "Placing the burden of proof on companies (e.g., requiring audits)."
+      ]
+     },
+     {
+      "kind": "Did you know?",
+      "text": "The EU AI Act entered into force in August 2024 and bans some AI practices outright — a real example of bright-line rules."
+     },
+     {
+      "kind": "Tip",
+      "text": "For “enforce existing laws”, check your country’s data protection law — for example Nigeria’s Data Protection Act 2023, Kenya’s Data Protection Act 2019, or South Africa’s POPIA."
+     }
+    ]
+   },
+   {
+    "text": "Bring everything together into a concise governance brief (250–300 words).",
+    "prompts": [
+     "A section on benefits and risks (with stakeholders noted).",
+     "A section on governance responses, tied to the risks/benefits."
+    ],
+    "fields": [
+     {
+      "label": "Governance brief",
+      "target": [
+       250,
+       300
+      ]
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Tip",
+      "text": "Roughly 125–150 words per section keeps you inside 250–300 words."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "title": "Design a sustainability plan for your LLM project",
+  "short": "Sustainability plan",
+  "icon": "https://api.iconify.design/flat-color-icons/globe.svg",
+  "minutes": "60 minutes",
+  "intro": "Create a sustainability and environmental justice plan for your LLM: concrete developer actions, stakeholder engagement, and ways to balance risks and benefits so your innovation supports both community needs and planetary well-being.",
+  "refs": [
+   "[1] Ibo van de Poel and Martin Sand. 2021. Varieties of responsibility: two problems of responsible innovation. Synthese, 198(19), 4769–4787. https://doi.org/10.1007/s11229-018-01951-7"
+  ],
+  "tasks": [
+   {
+    "text": "Developer level — Which specific actions will you take in the pipeline to reduce the risk of negative environmental impacts? (E.g., fine-tuning rather than pre-training)",
+    "fields": [
+     {
+      "label": "Action to take"
+     },
+     {
+      "label": "Environmental impact of taking this action"
+     },
+     {
+      "label": "Who does this benefit?"
+     },
+     {
+      "label": "Who might lose out?"
+     }
+    ],
+    "exampleName": "agricultural chatbot example",
+    "example": [
+     "Action: Fine-tuning the model for soil health: Adjust the AI’s reward/optimization function to penalize recommendations for high-tillage methods and prioritize soil health metrics even if short-term yields are marginally lower.",
+     "Impact: Directly reduces soil erosion, increases soil organic matter, and enhances carbon sequestration.",
+     "Benefits: Smallholder farmers (better long-term soil). Local environment (reduced runoff/pollution). Future generations.",
+     "Loses out: Commercial farms (focused solely on immediate, maximum yield.)"
+    ],
+    "notes": [
+     {
+      "kind": "From your sources",
+      "text": "If you align your model with human preferences, DPO skips training a separate reward model, unlike RLHF with PPO. Reference-free variants such as ORPO and SimPO cut fine-tuning memory by about half.",
+      "src": "DPO survey: constraint mechanism"
+     },
+     {
+      "kind": "Tip",
+      "text": "Fine-tuning a small existing model uses far less compute than pre-training one from scratch."
+     },
+     {
+      "kind": "Measure your footprint",
+      "links": [
+       {
+        "name": "CodeCarbon",
+        "note": "Tracks emissions from your training code",
+        "url": "https://codecarbon.io/"
+       },
+       {
+        "name": "ML CO2 Impact calculator",
+        "note": "Estimate emissions by hardware and region",
+        "url": "https://mlco2.github.io/impact/"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "text": "Stakeholder level — Which groups are most affected by your project’s environmental footprint? Which actions can you take to allow them to participate in decision-making?",
+    "fields": [
+     {
+      "label": "Action to take"
+     },
+     {
+      "label": "Environmental impact of taking this action"
+     },
+     {
+      "label": "Who does this benefit?"
+     },
+     {
+      "label": "Who might lose out?"
+     }
+    ],
+    "exampleName": "agricultural chatbot example",
+    "example": [
+     "Action: Create independent smallholder advisory boards with representatives from local farmer cooperatives, environmental NGOs, and agricultural extension services. Mandate that all advice modules (e.g., weather, pest management) be field-tested and validated by this board before deployment.",
+     "Impact: Ensures advice is contextually appropriate for diverse local systems (reducing monoculture risk). Improves the accuracy of climate/weather advice, preventing crop loss.",
+     "Benefits: Smallholder farmers (technology matches their reality). Local communities (preserve traditional knowledge and diverse crops). Biodiversity (local people in the region.)",
+     "Loses out: Technology developers (increases development time and cost)."
+    ],
+    "notes": [
+     {
+      "kind": "Ubuntu value",
+      "title": "Communal Character (Ubuntu)",
+      "what": "An approach that integrates technology with existing local community structures, relying on consultations with elders and religious leaders, and using local fables and proverbs to reinforce shared heritage.",
+      "when": "When deploying technology in distinct local or underserved communities where cultural alignment and community leadership are essential for trust and long-term success."
+     },
+     {
+      "kind": "Tip",
+      "text": "Include communities living near data centres, who are affected by water and power use, as well as your users."
+     }
+    ]
+   },
+   {
+    "text": "Organizational level — Who is responsible if something goes wrong? What action can they take to reduce this risk?",
+    "fields": [
+     {
+      "label": "Action to take"
+     },
+     {
+      "label": "Environmental impact of taking this action"
+     },
+     {
+      "label": "Who does this benefit?"
+     },
+     {
+      "label": "Who might lose out?"
+     }
+    ],
+    "exampleName": "agricultural chatbot example",
+    "example": [
+     "Action: Implement a policy where the developer/deployer organization retains liability for losses caused by demonstrably faulty advice (e.g., mis-timing of irrigation). Establish clear Farmer Data Ownership where data from small farms is aggregated into a data cooperative managed by the farmers themselves.",
+     "Impact: Encourages rigorous internal testing, transparency, and safety mechanisms. The data cooperative can pool resources to build small-farm-centric tools, actively combatting the digital divide.",
+     "Benefits: Smallholder farmers (would have a reduced risk and new revenue stream from their data.) Consumer trust (clear accountability)",
+     "Loses out: Large commercial farms/data brokers (limits the ability to monopolize smallholder data and influence model bias.)"
+    ],
+    "notes": [
+     {
+      "kind": "Governance proposal",
+      "title": "Data Trusts and Cooperatives (Data Stewardship)",
+      "what": "A collective governance model where a community’s digital data is managed on its behalf, giving members explicit control over how their knowledge is repurposed and ensuring fair benefit-sharing.",
+      "when": "When scraping or collecting community-generated content (such as forum posts, messaging groups, or blogs) to prevent corporate claims that publicly accessible data is free to exploit."
+     },
+     {
+      "kind": "From your sources",
+      "text": "Local compute clusters and open-source model repositories reduce reliance on foreign cloud infrastructure and keep decisions about resource use closer to the community.",
+      "src": "Moletsane (2026); Beyene et al. (2024) · TASK-TEC-05"
+     },
+     {
+      "kind": "Did you know?",
+      "text": "Google has set a goal to run on 24/7 carbon-free energy on every grid where it operates by 2030."
+     }
+    ]
+   },
+   {
+    "text": "Include who you believe should make decisions about resource use, how benefits and risks should be distributed, and who should be responsible for the outcomes of those decisions.",
+    "fields": [
+     {
+      "label": "Decision-making and responsibility"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Tip",
+      "text": "van de Poel and Sand [1] argue responsibility should sit with the organisations that hold resources and decision-making power, not only individual developers."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "title": "Best practices for sharing your work",
+  "short": "Share your work",
+  "icon": "https://api.iconify.design/flat-color-icons/share.svg",
+  "minutes": "10 minutes",
+  "intro": "Now that you have completed your capstone project, you may want to consider sharing your data, code, or models, so that others can build upon your work or you can collaborate with others.",
+  "tasks": [
+   {
+    "text": "Clean up your Colab notebooks: remove activity descriptions, worked examples and leftover debugging statements, and add documentation on what you have actually done.",
+    "fields": [
+     {
+      "label": "What I removed and documented"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Tip",
+      "text": "Restart the runtime and use “Run all” before sharing to confirm the notebook works from top to bottom."
+     },
+     {
+      "kind": "Did you know?",
+      "text": "Code is read far more often than it is written."
+     }
+    ]
+   },
+   {
+    "text": "Make your code readable by following an established coding style such as PEP8 or the Google Python Style Guide.",
+    "fields": [
+     {
+      "label": "Style guide I followed"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Style guides",
+      "links": [
+       {
+        "name": "Google Python Style Guide",
+        "note": "google.github.io/styleguide/pyguide.html",
+        "url": "https://google.github.io/styleguide/pyguide.html"
+       },
+       {
+        "name": "PEP 8",
+        "note": "Style Guide for Python Code",
+        "url": "https://peps.python.org/pep-0008/"
+       }
+      ]
+     },
+     {
+      "kind": "Tip",
+      "text": "The Google Python Style Guide is the style used in all existing code in this course’s notebooks."
+     },
+     {
+      "kind": "Tip",
+      "text": "Use descriptive variable and function names instead of cryptic ones."
+     }
+    ]
+   },
+   {
+    "text": "Use version control with Git to track changes, experiment safely and revert anything that breaks your pipeline. Share your project on a platform like GitHub.",
+    "fields": [
+     {
+      "label": "Repository link"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "From your sources",
+      "text": "Share with Global South research networks such as Deep Learning Indaba, Data Science Africa, Zindi and the DAIG Coalition.",
+      "src": "Moletsane (2026); UN IGF DAIG Coalition (2024) · TASK-STK-04"
+     },
+     {
+      "kind": "Did you know?",
+      "text": "Git acts as a time machine for your codebase: you can see the exact evolution of your project."
+     },
+     {
+      "kind": "Get started",
+      "links": [
+       {
+        "name": "GitHub",
+        "note": "Host and share your repository",
+        "url": "https://github.com/"
+       }
+      ]
+     },
+     {
+      "kind": "Tip",
+      "text": "Commit after each working change with a short message saying what changed."
+     }
+    ]
+   },
+   {
+    "text": "Write a Readme.md as the entry point to your project, and include documentation from this capstone.",
+    "fields": [
+     {
+      "label": "README draft"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "A README typically includes",
+      "items": [
+       "What the project is about.",
+       "Which files contain the code and the data.",
+       "How to run the code."
+      ]
+     },
+     {
+      "kind": "Also include",
+      "items": [
+       "Your project plan",
+       "Your data card",
+       "Your impact statement"
+      ]
+     }
+    ]
+   },
+   {
+    "text": "Choose a license and add it as a LICENSE file in the root directory of your repository.",
+    "fields": [
+     {
+      "label": "License chosen"
+     }
+    ],
+    "notes": [
+     {
+      "kind": "Licences to check",
+      "rows": [
+       {
+        "k": "MIT",
+        "v": "Standard, highly permissive choice for Python code."
+       },
+       {
+        "k": "Apache 2.0",
+        "v": "Standard, highly permissive choice for Python code."
+       },
+       {
+        "k": "CC",
+        "v": "Creative Commons licenses are the standard for an original dataset."
+       }
+      ]
+     },
+     {
+      "kind": "Did you know?",
+      "text": "Without a license, no one is legally permitted to use, modify, or distribute your project, because creative works are protected by copyright by default."
+     }
+    ]
+   }
+  ]
+ }
+];
+
+
+const POS = [[80, 320], [200, 140], [320, 320], [440, 140], [560, 320], [680, 140], [800, 320], [915, 140]];
+const W = 1000, H = 540;
+const ST = {
+  none: { soft: '#fbe6e6', dot: '#d06060', ink: '#9c3b3b', label: 'Not started' },
+  going: { soft: '#fff0da', dot: '#ec9a3e', ink: '#a4611a', label: 'On going' },
+  done: { soft: '#ddf3e8', dot: '#3faa77', ink: '#237a52', label: 'Completed' }
+};
+const NOTE_STYLE = {
+  'From your sources': { bg: '#eef1f6', ink: '#3b4a78', icon: 'ri-book-open-line' },
+  'Ubuntu value': { bg: '#fdf1e6', ink: '#9a5a1f', icon: 'ri-hand-heart-line' },
+  'Governance proposal': { bg: '#edf5ef', ink: '#2f6b47', icon: 'ri-scales-3-line' },
+  'Tip': { bg: '#eef6fb', ink: '#2f7ea3', icon: 'ri-lightbulb-flash-line' },
+  'Did you know?': { bg: '#f3effb', ink: '#6a4bb0', icon: 'ri-sparkling-2-line' },
+  'Licences to check': { bg: '#fff5e6', ink: '#a4611a', icon: 'ri-copyright-line' }
+};
+const CHECK_STYLE = { bg: '#f6f7f8', ink: '#3a8db1', icon: 'ri-list-check-2' };
+const LINK_STYLE = { bg: '#eaf6ef', ink: '#237a52', icon: 'ri-links-line' };
+const pad = n => String(n).padStart(2, '0');
+const words = s => (s || '').trim().split(/\s+/).filter(Boolean).length;
+const h = React.createElement;
+const MAIN = 'M80 320 C140 320 140 140 200 140 C260 140 260 320 320 320 C380 320 380 140 440 140 C500 140 500 320 560 320 C620 320 620 140 680 140 C740 140 740 320 800 320 C858 320 858 140 915 140';
+const LOOP = 'M915 192 L915 470 C915 500 895 515 860 515 L130 515 C98 515 80 498 80 374';
+
+class Component extends DCLogic {
+  state = this.load();
+  load() {
+    const base = { view: 'map', cur: 0, ti: {}, resp: {}, done: {}, open: {}, notes: {}, shown: true, tshown: true, zoom: null };
+    try { const s = JSON.parse(localStorage.getItem(KEY)); if (s) {
+      const shift = o => { o = o || {}; if (!s.impactV2) { const r0 = {}; Object.entries(o).forEach(([k, v]) => { const p = k.split('.'); if (p[0] === '2' && p[1] === '0') p[1] = '5'; r0[p.join('.')] = v; }); o = r0; } if (s.noStory) return o; const r = {}; Object.entries(o || {}).forEach(([k, v]) => { const p = k.split('.'); if (p[0] !== '4') { r[k] = v; return; } const j = +p[1]; if (j === 0) return; p[1] = String(j - 1); r[p.join('.')] = v; }); return r; };
+      return { ...base, resp: shift(s.resp), done: shift(s.done), ti: s.ti || {}, notes: s.notes || {}, cur: s.cur || 0 };
+    } } catch (e) {}
+    return base;
+  }
+  componentWillUnmount() { clearTimeout(this._t); }
+  persist() {
+    const { cur, resp, done, ti, notes } = this.state;
+    try { localStorage.setItem(KEY, JSON.stringify({ cur, resp, done, ti, notes, noStory: true, impactV2: true })); } catch (e) {}
+  }
+  set(p, cb) { this.setState(p, () => { this.persist(); cb && cb(); }); }
+  reveal(key) { requestAnimationFrame(() => requestAnimationFrame(() => this.setState({ [key]: true }))); }
+  zoomInto(i) {
+    clearTimeout(this._t);
+    this.setState({ zoom: i });
+    this._t = setTimeout(() => { this.set({ view: 'detail', cur: i, shown: false, zoom: null }, () => this.reveal('shown')); try { window.scrollTo(0, 0); } catch (e) {} }, 650);
+  }
+  backToMap() {
+    clearTimeout(this._t);
+    this.setState({ view: 'map', zoom: this.state.cur, mapReturn: true });
+    try { window.scrollTo(0, 0); } catch (e) {}
+    requestAnimationFrame(() => requestAnimationFrame(() => this.setState({ zoom: null, mapReturn: false })));
+  }
+  go(i, task) {
+    const ti = task != null ? { ...this.state.ti, [i]: task } : this.state.ti;
+    this.set({ cur: i, ti, shown: false, view: 'detail' }, () => this.reveal('shown'));
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) {}
+  }
+  goTask(j) { this.set({ ti: { ...this.state.ti, [this.state.cur]: j }, tshown: false }, () => this.reveal('tshown')); }
+
+  svg(progress, activeIdx) {
+    return h('svg', { viewBox: `0 0 ${W} ${H}`, style: { position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' } },
+      h('defs', null,
+        h('linearGradient', { id: 'pg', x1: 0, x2: 1, y1: 0, y2: 0 },
+          h('stop', { offset: '0%', stopColor: '#f5a04a' }), h('stop', { offset: '45%', stopColor: '#5aafd4' }), h('stop', { offset: '100%', stopColor: '#3faa77' })),
+        h('marker', { id: 'ah', viewBox: '0 0 10 10', refX: 5, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' },
+          h('path', { d: 'M0 0 L10 5 L0 10 z', fill: '#8a96a2' }))),
+      h('path', { d: MAIN, fill: 'none', stroke: '#eef1f4', strokeWidth: 16, strokeLinecap: 'round' }),
+      h('path', { d: MAIN, fill: 'none', stroke: 'url(#pg)', strokeWidth: 16, strokeLinecap: 'round', pathLength: 100, strokeDasharray: `${Math.max(progress, 0.01)} 100`, style: { transition: 'stroke-dasharray 1.2s cubic-bezier(.4,0,.2,1)' } }),
+      h('path', { d: MAIN, fill: 'none', stroke: '#fff', strokeWidth: 3, strokeLinecap: 'round', strokeDasharray: '2 14', style: { animation: 'dash 1.4s linear infinite' } }),
+      h('path', { d: LOOP, fill: 'none', stroke: '#b9c2ca', strokeWidth: 2.5, strokeDasharray: '8 8', markerEnd: 'url(#ah)', style: { animation: 'dash 2.4s linear infinite' } }),
+      h('text', { x: 440, y: 503, textAnchor: 'middle', fontSize: 14, fontWeight: 600, fill: '#6b7782', fontFamily: 'DM Sans, sans-serif' }, 'Go back, refamiliarize & revise'));
+  }
+  dataCard() {
+    const { resp, cur, ti } = this.state;
+    const tasks = STEPS[1].tasks, activeJ = cur === 1 ? (ti[1] || 0) : -1;
+    const DCI = ['ri-arrow-left-right-line', 'ri-price-tag-3-line', 'ri-user-star-line', 'ri-mic-line', 'ri-global-line', 'ri-group-line', 'ri-hand-heart-line'];
+    const sections = [];
+    tasks.forEach((t, j) => {
+      if (!t.prompts) return;
+      const v = (resp['1.' + j + '.0'] || '').trim(), n = sections.length;
+      sections.push({ title: t.text, prompts: t.prompts, has: !!v,
+        preview: v || 'Not filled yet', full: v || 'Not filled yet — select Edit to answer.',
+        color: v ? '#0e1a24' : '#9aa4ad', fontStyle: v ? 'normal' : 'italic',
+        icon: v ? 'ri-checkbox-circle-fill' : DCI[n] || 'ri-circle-line', iconColor: v ? '#3faa77' : '#b3bcc4',
+        bg: j === activeJ ? '#eef6fb' : 'transparent',
+        onClick: () => this.goTask(j),
+        onEdit: () => { this.setState({ dcOpen: false }); this.go(1, j); } });
+    });
+    const filled = sections.filter(s => s.has).length;
+    const name = resp['dc.name'] || '';
+    const summary = (resp['0.4.0'] || resp['0.3.0'] || '').trim();
+    return { sections, name, title: name || 'Untitled dataset', summary: summary || 'Your problem statement from Step 1 will appear here as the dataset summary.',
+      filledLabel: filled + '/' + sections.length + ' sections', pct: Math.round(filled / sections.length * 100) + '%',
+      onName: e => this.set({ resp: { ...this.state.resp, 'dc.name': e.target.value } }) };
+  }
+  dcMarkdown() {
+    const d = this.dataCard();
+    return ['# Data Card: ' + d.title, '', d.summary, '', ...d.sections.flatMap(s => ['## ' + s.title, ...s.prompts.map(q => '_' + q + '_'), '', s.has ? s.full : '(not filled yet)', ''])].join('\n');
+  }
+  pulse(color) {
+    return h('span', { style: { position: 'absolute', inset: 0, borderRadius: '50%', border: '3px solid ' + color, animation: 'pulse 1.8s ease-out infinite', pointerEvents: 'none' } });
+  }
+
+  renderVals() {
+    const { view, cur, resp, done, open, ti, shown, tshown, zoom, notes } = this.state;
+    const showWc = this.props.showWordCounts ?? true;
+    const exDefault = this.props.examplesOpen ?? false;
+    const total = STEPS.reduce((a, s) => a + s.tasks.length, 0);
+    const doneTotal = Object.values(done).filter(Boolean).length;
+    const doneIn = i => STEPS[i].tasks.filter((_, j) => done[i + '.' + j]).length;
+    const complete = i => doneIn(i) === STEPS[i].tasks.length;
+    const started = i => doneIn(i) > 0 || Object.keys(resp).some(k => k.startsWith(i + '.') && (resp[k] || '').trim());
+    const stOf = i => complete(i) ? ST.done : started(i) ? ST.going : ST.none;
+    const allDone = STEPS.every((_, i) => complete(i)), anyStarted = STEPS.some((_, i) => started(i));
+    const firstOpen = STEPS.findIndex((_, i) => !complete(i));
+    const inDetail = view === 'detail';
+
+    const items = [...STEPS.map((s, i) => ({ i, short: s.short, icon: s.icon, st: stOf(i), meta: doneIn(i) + '/' + s.tasks.length })),
+      { i: STEPS.length, short: 'Review full plan', icon: IC('inspection'), st: allDone ? ST.done : anyStarted ? ST.going : ST.none, meta: 'all' }];
+    const nodes = items.map((it, k) => {
+      const [x, y] = POS[k], high = y < 200, active = inDetail ? cur === it.i : firstOpen === it.i;
+      return {
+        num: k < STEPS.length ? k + 1 : '↺', short: it.short, icon: it.icon, meta: it.meta,
+        statusLabel: it.st.label, soft: it.st.soft, dot: it.st.dot, ink: it.st.ink,
+        left: (x / W * 100) + '%', top: (y / H * 100) + '%',
+        anchor: high ? 'translate(-50%, calc(-100% + 48px))' : 'translate(-50%, -48px)',
+        dir: high ? 'column-reverse' : 'column',
+        pulse: active ? this.pulse(it.st.dot) : null,
+        scale: active ? 1.08 : 1, bob: active ? 'bob 2.4s ease-in-out infinite' : 'none',
+        onClick: () => this.zoomInto(it.i),
+        jump: () => this.go(it.i),
+        miniBg: cur === it.i ? it.st.soft : 'transparent',
+        miniRing: cur === it.i ? '0 0 0 2px ' + it.st.dot : 'none'
+      };
+    });
+
+    const zi = zoom != null ? zoom : null;
+    const mapTransform = zi != null ? 'scale(3.2)' : 'scale(1)';
+    const mapOrigin = zi != null ? `${POS[zi][0] / W * 100}% ${POS[zi][1] / H * 100}%` : '50% 50%';
+
+    const isStep = cur < STEPS.length;
+    let step = {}, task = {}, j = 0;
+    if (isStep) {
+      const s = STEPS[cur], st = stOf(cur);
+      j = Math.min(ti[cur] || 0, s.tasks.length - 1);
+      step = {
+        num: pad(cur + 1), title: s.title, icon: s.icon, minutes: s.minutes || '—', intro: s.intro,
+        soft: st.soft, ink: st.ink, statusLabel: st.label,
+        hasNotice: !!s.notice, notice: s.notice || '',
+        hasGuides: !!(s.guides && s.guides.length), guides: s.guides || [],
+        hasRefs: !!(s.refs && s.refs.length), refs: s.refs || [],
+        chips: s.tasks.map((t, m) => {
+          const d = !!done[cur + '.' + m], a = m === j;
+          return { num: m + 1, title: t.text, icon: d ? 'ri-check-line' : '',
+            bg: a ? '#0e1a24' : d ? '#ddf3e8' : '#fff', fg: a ? '#fff' : d ? '#237a52' : '#4a5762',
+            border: a ? '#0e1a24' : d ? '#bfe6d2' : '#e6e8eb', onClick: () => this.goTask(m) };
+        })
+      };
+      const t = s.tasks[j], k = cur + '.' + j, isDone = !!done[k], exOpen = open[k] ?? exDefault;
+      task = {
+        label: 'TASK ' + (j + 1) + ' OF ' + s.tasks.length, text: t.text, short: 'Task ' + (j + 1),
+        hasPrompts: !!(t.prompts && t.prompts.length), prompts: t.prompts || [],
+        hasLink: t.link != null, linkLabel: t.linkLabel || '', onLink: () => this.go(t.link),
+        hasExample: !!t.example, example: t.example || [], exampleRows: exOpen ? '1fr' : '0fr',
+        exampleIcon: exOpen ? 'ri-subtract-line' : 'ri-add-line',
+        exampleLabel: (exOpen ? 'Hide ' : 'Show ') + (t.exampleName || 'example'),
+        onToggleExample: () => this.setState({ open: { ...this.state.open, [k]: !exOpen } }),
+        toggleIcon: isDone ? 'ri-checkbox-circle-fill' : 'ri-checkbox-blank-circle-line',
+        toggleLabel: isDone ? 'Done' : 'Mark done', toggleColor: isDone ? '#237a52' : '#4a5762',
+        onToggle: () => this.set({ done: { ...this.state.done, [k]: !isDone } }),
+        fields: t.fields.map((f, m) => {
+          const fk = k + '.' + m, v = resp[fk] || '', n = words(v);
+          let wc = '', wcColor = '#8a96a2';
+          if (showWc) {
+            if (f.target) {
+              const [lo, hi] = f.target;
+              wc = n + ' / ' + (lo === hi ? '~' + lo : lo + '–' + hi) + ' words';
+              const ok = lo === hi ? Math.abs(n - lo) <= lo * 0.15 : n >= lo && n <= hi;
+              wcColor = ok ? '#237a52' : n > hi * 1.15 ? '#b0563a' : '#8a96a2';
+            } else if (n) wc = n + ' words';
+          }
+          return { label: f.label, value: v, wc, wcColor, rows: f.target ? (f.target[1] >= 250 ? 10 : 6) : 3,
+            onChange: e => this.set({ resp: { ...this.state.resp, [fk]: e.target.value } }) };
+        })
+      };
+    }
+
+    const nTasks = isStep ? STEPS[cur].tasks.length : 0;
+    const lastTask = j === nTasks - 1;
+    const markDone = () => { const k = cur + '.' + j; if (!this.state.done[k]) this.set({ done: { ...this.state.done, [k]: true } }); };
+    const review = STEPS.map((s, i) => {
+      const entries = [];
+      s.tasks.forEach((t, a) => t.fields.forEach((f, m) => {
+        const v = resp[i + '.' + a + '.' + m];
+        if (v && v.trim()) entries.push({ label: f.label === 'Your response' ? t.text : f.label, value: v });
+      }));
+      if ((notes[i] || '').trim()) entries.push({ label: 'My notes', value: notes[i] });
+      return { num: i + 1, title: s.title, icon: s.icon, entries, empty: !entries.length, onClick: () => this.go(i) };
+    });
+    const contIdx = firstOpen === -1 ? STEPS.length : firstOpen;
+
+    return {
+      isMap: !inDetail, isDetail: inDetail, isStep, isReview: !isStep,
+      nodes, step, task, review,
+      notesList: isStep ? (STEPS[cur].tasks[j].notes || []).map(n => {
+        const sty = n.links ? LINK_STYLE : n.items ? CHECK_STYLE : (NOTE_STYLE[n.kind] || NOTE_STYLE['Tip']);
+        return { kind: n.kind, text: n.text || '', hasText: !!n.text, links: n.links || [], rows: n.rows || [], items: n.items || [], isValue: !!n.what, vTitle: n.title || '', src: n.src || '', hasSrc: !!n.src, hasTitle: !!(n.title && !n.what), ctitle: n.title || '', what: n.what || '', when: n.when || '', ...sty };
+      }) : [],
+      mapSvg: this.svg(total ? doneTotal / total * 100 : 0),
+      mapTransform, mapOrigin, mapOpacity: zi != null ? 0 : 1, chromeOpacity: zi != null ? 0 : 1,
+      progressLabel: doneTotal + ' of ' + total + ' tasks done',
+      continueLabel: firstOpen === -1 ? 'Review full plan' : (anyStarted ? 'Continue: ' : 'Start: ') + STEPS[contIdx].short,
+      continueClick: () => this.zoomInto(contIdx),
+      backToMap: () => this.backToMap(),
+      isDC: cur === 1, dc: this.dataCard(), dcOpen: this.state.dcOpen || false,
+      dcOpacity: this.state.dcShown ? 1 : 0, dcTransform: this.state.dcShown ? 'none' : 'translateY(24px) scale(.97)',
+      openDC: () => { this.setState({ dcOpen: true, dcShown: false }); this.reveal('dcShown'); },
+      closeDC: () => this.setState({ dcOpen: false, dcShown: false }),
+      stop: e => e.stopPropagation(),
+      copyLabel: this.state.copied ? 'Copied' : 'Copy as Markdown',
+      copyDC: () => { const md = this.dcMarkdown(); try { navigator.clipboard.writeText(md); } catch (e) {} this.setState({ copied: true }); setTimeout(() => this.setState({ copied: false }), 1800); },
+      myNote: notes[cur] || '',
+      onMyNote: e => this.set({ notes: { ...this.state.notes, [cur]: e.target.value } }),
+      panelOpacity: shown ? 1 : 0, panelTransform: shown ? 'none' : 'scale(.97) translateY(12px)',
+      taskOpacity: tshown ? 1 : 0, taskTransform: tshown ? 'none' : 'translateX(24px)',
+      backOpacity: cur === 0 && j === 0 ? 0.4 : 1,
+      backLabel: j > 0 ? 'Previous task' : cur > 0 ? 'Previous step' : 'Back',
+      goBack: () => { if (j > 0) this.goTask(j - 1); else if (cur > 0) this.go(cur - 1, STEPS[cur - 1].tasks.length - 1); },
+      forwardLabel: !lastTask ? 'Done — next task' : cur === STEPS.length - 1 ? 'Done — review plan' : 'Done — next step',
+      goForward: () => { markDone(); if (!lastTask) this.goTask(j + 1); else this.go(cur + 1, 0); }
+    };
+  }
+}
+</script>
+</body>
+</html>
