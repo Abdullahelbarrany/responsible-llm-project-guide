@@ -83,6 +83,7 @@ python -m http.server 8000
 | File | Purpose |
 | --- | --- |
 | `index.html` | The guide (content, styles and runtime in one file) |
+| `favicon.svg` | Browser tab icon |
 | `support.js` | Standalone copy of the runtime that is already inlined in `index.html`; not referenced by the page |
 | `LICENSE` | License terms |
 
